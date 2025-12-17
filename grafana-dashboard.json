@@ -2374,14 +2374,17 @@
                   {
                     "options": {
                       "1": {
+                        "color": "green",
                         "index": 0,
                         "text": "FULL"
                       },
                       "2": {
+                        "color": "green",
                         "index": 1,
                         "text": "BULK_LOGGED"
                       },
                       "3": {
+                        "color": "yellow",
                         "index": 2,
                         "text": "SIMPLE"
                       }
@@ -2389,6 +2392,13 @@
                     "type": "value"
                   }
                 ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "mode": "gradient",
+                  "type": "color-background"
+                }
               }
             ]
           },
@@ -2396,6 +2406,111 @@
             "matcher": {
               "id": "byName",
               "options": "Auto Shrink"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "0": {
+                        "color": "green",
+                        "index": 0,
+                        "text": "OFF"
+                      },
+                      "1": {
+                        "color": "red",
+                        "index": 1,
+                        "text": "ON"
+                      }
+                    },
+                    "type": "value"
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "mode": "gradient",
+                  "type": "color-background"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Compatibility Level"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "80": {
+                        "color": "red",
+                        "index": 0,
+                        "text": "80 (SQL 2000)"
+                      },
+                      "90": {
+                        "color": "red",
+                        "index": 1,
+                        "text": "90 (SQL 2005)"
+                      },
+                      "100": {
+                        "color": "red",
+                        "index": 2,
+                        "text": "100 (SQL 2008)"
+                      },
+                      "110": {
+                        "color": "orange",
+                        "index": 3,
+                        "text": "110 (SQL 2012)"
+                      },
+                      "120": {
+                        "color": "orange",
+                        "index": 4,
+                        "text": "120 (SQL 2014)"
+                      },
+                      "130": {
+                        "color": "yellow",
+                        "index": 5,
+                        "text": "130 (SQL 2016)"
+                      },
+                      "140": {
+                        "color": "yellow",
+                        "index": 6,
+                        "text": "140 (SQL 2017)"
+                      },
+                      "150": {
+                        "color": "green",
+                        "index": 7,
+                        "text": "150 (SQL 2019)"
+                      },
+                      "160": {
+                        "color": "green",
+                        "index": 8,
+                        "text": "160 (SQL 2022)"
+                      }
+                    },
+                    "type": "value"
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "mode": "gradient",
+                  "type": "color-background"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Auto Close"
             },
             "properties": [
               {

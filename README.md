@@ -118,10 +118,55 @@ The image supports the following environments and exposes port 4000
 - **TRUST_SERVER_CERTIFICATE** sets [trustServerCertificate](https://docs.microsoft.com/en-us/dotnet/api/system.data.sqlclient.sqlconnectionstringbuilder.trustservercertificate?view=dotnet-plat-ext-6.0) setting (optional defaults to true)
 - **DEBUG** comma delimited list of enabled logs (optional currently supports app and metrics)
 
-It is **_required_** that the specified user has the following permissions
+## Required Permissions
 
-- GRANT VIEW ANY DEFINITION TO <user>
-- GRANT VIEW SERVER STATE TO <user>
+The exporter requires specific permissions to collect all available metrics. You can use the provided [setup-permissions.sql](setup-permissions.sql) script to grant all required permissions automatically, or grant them manually as shown below.
+
+### Quick Setup
+
+Replace `[monitoring]` with your actual SQL user/login name and execute the [setup-permissions.sql](setup-permissions.sql) script on your SQL Server instance.
+
+### Manual Permissions Setup
+
+If you prefer to grant permissions manually, execute the following:
+
+**Master Database Permissions:**
+```sql
+USE master;
+GO
+GRANT VIEW SERVER STATE TO [your_user];
+GRANT VIEW ANY DEFINITION TO [your_user];
+GO
+```
+
+**MSDB Database Permissions** (required for SQL Agent Jobs and Backup metrics):
+```sql
+USE msdb;
+GO
+GRANT SELECT ON dbo.sysjobs TO [your_user];
+GRANT SELECT ON dbo.sysjobhistory TO [your_user];
+GRANT SELECT ON dbo.sysjobschedules TO [your_user];
+GRANT SELECT ON dbo.sysschedules TO [your_user];
+GRANT SELECT ON dbo.backupset TO [your_user];
+GO
+```
+
+**TempDB Permissions** (required for TempDB metrics):
+```sql
+USE tempdb;
+GO
+GRANT VIEW DATABASE STATE TO [your_user];
+GO
+```
+
+### What These Permissions Enable
+
+- **VIEW SERVER STATE**: Required for most Dynamic Management Views (sys.dm_*)
+- **VIEW ANY DEFINITION**: Required to query system metadata and catalog views
+- **MSDB SELECT permissions**: Enable SQL Agent job monitoring and backup history metrics
+- **TempDB VIEW DATABASE STATE**: Enable TempDB space and file metrics
+
+See the [setup-permissions.sql](setup-permissions.sql) script for a complete setup including verification queries.
 
 ## Frequently Asked Questions (FAQ)
 

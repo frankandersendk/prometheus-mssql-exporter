@@ -449,9 +449,13 @@ LEFT JOIN (
     WHERE step_id = 0
 ) h ON j.job_id = h.job_id AND h.rn = 1
 LEFT JOIN (
-    SELECT job_id, next_run_date AS next_scheduled_run_date, next_run_time AS next_scheduled_run_time
+    SELECT job_id,
+           MIN(next_run_date) AS next_scheduled_run_date,
+           MIN(next_run_time) AS next_scheduled_run_time
     FROM msdb.dbo.sysjobschedules js
     INNER JOIN msdb.dbo.sysschedules s ON js.schedule_id = s.schedule_id
+    WHERE next_run_date > 0
+    GROUP BY job_id
 ) ja ON j.job_id = ja.job_id`,
   collect: (rows, metrics) => {
     for (let i = 0; i < rows.length; i++) {
