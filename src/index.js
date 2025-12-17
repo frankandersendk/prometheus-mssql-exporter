@@ -8,6 +8,7 @@ const app = require("express")();
 const client = require("prom-client");
 
 const { entries } = require("./metrics");
+const { version } = require("../package.json");
 
 let config = {
   connect: {
@@ -128,6 +129,13 @@ app.get("/", (req, res) => {
   res.redirect("/metrics");
 });
 
+app.get("/version", (req, res) => {
+  res.json({
+    version: version,
+    repository: "https://github.com/awaragi/prometheus-mssql-exporter",
+  });
+});
+
 app.get("/metrics", async (req, res) => {
   res.contentType(client.register.contentType);
 
@@ -149,8 +157,10 @@ app.get("/metrics", async (req, res) => {
 });
 
 const server = app.listen(config.port, function () {
+  console.log(`Prometheus MSSQL Exporter v${version}`);
+  console.log(`Repository: https://github.com/awaragi/prometheus-mssql-exporter`);
   appLog(
-    `Prometheus-MSSQL Exporter listening on local port ${config.port} monitoring ${config.connect.authentication.options.userName}@${config.connect.server}:${config.connect.options.port}`
+    `Listening on local port ${config.port} monitoring ${config.connect.authentication.options.userName}@${config.connect.server}:${config.connect.options.port}`
   );
 });
 
