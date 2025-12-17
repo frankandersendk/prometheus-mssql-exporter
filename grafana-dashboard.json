@@ -627,6 +627,81 @@
             },
             "properties": [
               {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "-1": {
+                        "color": "orange",
+                        "index": 0,
+                        "text": "Never Run"
+                      },
+                      "0": {
+                        "color": "red",
+                        "index": 1,
+                        "text": "Failed"
+                      },
+                      "1": {
+                        "color": "green",
+                        "index": 2,
+                        "text": "Succeeded"
+                      },
+                      "2": {
+                        "color": "yellow",
+                        "index": 3,
+                        "text": "Retry"
+                      },
+                      "3": {
+                        "color": "red",
+                        "index": 4,
+                        "text": "Canceled"
+                      },
+                      "4": {
+                        "color": "blue",
+                        "index": 5,
+                        "text": "In Progress"
+                      }
+                    },
+                    "type": "value"
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "mode": "gradient",
+                  "type": "color-background"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Enabled"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "0": {
+                        "color": "red",
+                        "index": 0,
+                        "text": "Disabled"
+                      },
+                      "1": {
+                        "color": "green",
+                        "index": 1,
+                        "text": "Enabled"
+                      }
+                    },
+                    "type": "value"
+                  }
+                ]
+              },
+              {
                 "id": "custom.cellOptions",
                 "value": {
                   "mode": "gradient",
