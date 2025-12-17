@@ -170,11 +170,33 @@ See the [setup-permissions.sql](setup-permissions.sql) script for a complete set
 
 ## Frequently Asked Questions (FAQ)
 
-### Unable to connect to database
+### Unable to connect to database / Connection timeout
 
 Raised in [issue #19](https://github.com/awaragi/prometheus-mssql-exporter/issues/19)
 
-Probably your SQL Server is working as named instance. For named instances the TCP port is dynamically configured by default, so you may need do explicitly specify port in MSSQL settings as described [here](https://docs.microsoft.com/en-US/sql/database-engine/configure-windows/configure-a-server-to-listen-on-a-specific-tcp-port?view=sql-server-ver15).
+**Named Instance Issue:**
+If your SQL Server is configured as a named instance (e.g., `SERVER\INSTANCENAME`), the TCP port is dynamically assigned by default, which can cause connection issues.
+
+**Solutions:**
+
+1. **Use a static port (Recommended):**
+   Configure your SQL Server to listen on a specific TCP port:
+   - Open SQL Server Configuration Manager
+   - Navigate to SQL Server Network Configuration → Protocols for [Instance Name]
+   - Right-click TCP/IP → Properties → IP Addresses tab
+   - Set "TCP Dynamic Ports" to blank and "TCP Port" to a specific port (e.g., 1433)
+   - Restart SQL Server service
+   - Use the PORT environment variable: `docker run -e PORT=1433 ...`
+
+2. **Use the default instance:**
+   If possible, use the default SQL Server instance instead of a named instance.
+
+3. **Enable TCP/IP protocol:**
+   Ensure TCP/IP is enabled in SQL Server Configuration Manager:
+   - SQL Server Network Configuration → Protocols for [Instance Name]
+   - Right-click TCP/IP → Enable
+
+For detailed instructions, see [Microsoft's documentation](https://docs.microsoft.com/en-US/sql/database-engine/configure-windows/configure-a-server-to-listen-on-a-specific-tcp-port?view=sql-server-ver15).
 
 ### Running multiple instances of exporter
 
