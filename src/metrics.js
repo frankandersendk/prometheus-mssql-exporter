@@ -850,7 +850,7 @@ SELECT
     let version_store_kb = 0;
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
-      file_count = row[0].value;
+      const data_file_count = row[0].value;
       const file_name = row[1].value;
       const file_type = row[2].value;
       const size_kb = row[3].value;
@@ -860,6 +860,10 @@ SELECT
         version_store_kb = space_used_kb || 0;
         metricsLog("Fetched TempDB version store size (KB)", version_store_kb);
       } else {
+        // Only update file_count from actual file rows (not VersionStore row which has 0)
+        if (data_file_count > 0) {
+          file_count = data_file_count;
+        }
         const used = space_used_kb || 0;
         metricsLog("Fetched TempDB file", file_name, "type", file_type, "size_kb", size_kb, "used_kb", used);
         metrics.mssql_tempdb_file_size_kb.set({ file_name, file_type }, size_kb);

@@ -1928,17 +1928,66 @@
               {
                 "color": "green",
                 "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 70
+              },
+              {
+                "color": "red",
+                "value": 85
               }
             ]
-          }
+          },
+          "unit": "decmbytes"
         },
         "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Usage %"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "max",
+                "value": 100
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 70
+                    },
+                    {
+                      "color": "red",
+                      "value": 85
+                    }
+                  ]
+                }
+              }
+            ]
+          },
           {
             "matcher": {
               "id": "byName",
               "options": "File Count"
             },
             "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              },
               {
                 "id": "thresholds",
                 "value": {
@@ -1958,18 +2007,6 @@
                     }
                   ]
                 }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Version Store MB"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "decmbytes"
               }
             ]
           }
@@ -1997,14 +2034,29 @@
       "pluginVersion": "10.0.0",
       "targets": [
         {
-          "expr": "mssql_tempdb_file_count{instance=~\"$instance\"}",
-          "legendFormat": "File Count",
+          "expr": "sum(mssql_tempdb_file_size_kb{instance=~\"$instance\"}) / 1024",
+          "legendFormat": "Total Size MB",
           "refId": "A"
+        },
+        {
+          "expr": "sum(mssql_tempdb_space_used_kb{instance=~\"$instance\", file_name!=\"VersionStore\"}) / 1024",
+          "legendFormat": "Used MB",
+          "refId": "B"
         },
         {
           "expr": "mssql_tempdb_version_store_mb{instance=~\"$instance\"}",
           "legendFormat": "Version Store MB",
-          "refId": "B"
+          "refId": "C"
+        },
+        {
+          "expr": "100 * sum(mssql_tempdb_space_used_kb{instance=~\"$instance\", file_name!=\"VersionStore\"}) / sum(mssql_tempdb_file_size_kb{instance=~\"$instance\"})",
+          "legendFormat": "Usage %",
+          "refId": "D"
+        },
+        {
+          "expr": "mssql_tempdb_file_count{instance=~\"$instance\"}",
+          "legendFormat": "File Count",
+          "refId": "E"
         }
       ],
       "title": "TempDB Statistics",
