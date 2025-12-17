@@ -465,10 +465,17 @@ LEFT JOIN (
       const last_duration_seconds = row[6].value;
 
       metricsLog("Fetched SQL Agent job", job_name, "enabled", enabled, "status", last_run_status, "duration", last_duration_seconds);
+
+      // Always set all metrics, even for jobs that have never run (status=-1, seconds=0)
+      // This ensures they appear in Grafana tables
       metrics.mssql_sql_agent_job_status.set({ job_name, job_id, enabled }, last_run_status);
       metrics.mssql_sql_agent_job_last_run_seconds.set({ job_name, job_id }, last_run_seconds);
       metrics.mssql_sql_agent_job_next_run_seconds.set({ job_name, job_id }, next_run_seconds);
       metrics.mssql_sql_agent_job_last_duration_seconds.set({ job_name, job_id }, last_duration_seconds);
+    }
+
+    if (rows.length === 0) {
+      metricsLog("No SQL Agent jobs found");
     }
   },
 };
