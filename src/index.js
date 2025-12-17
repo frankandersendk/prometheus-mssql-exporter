@@ -8,7 +8,19 @@ const app = require("express")();
 const client = require("prom-client");
 
 const { entries } = require("./metrics");
-const { version } = require("../package.json");
+
+// Try to load package.json from different possible locations
+let version = "unknown";
+try {
+  version = require("../package.json").version;
+} catch (e) {
+  try {
+    // In Docker, package.json is copied to the same directory as index.js
+    version = require("./package.json").version;
+  } catch (e2) {
+    console.warn("Could not load version from package.json");
+  }
+}
 
 let config = {
   connect: {
