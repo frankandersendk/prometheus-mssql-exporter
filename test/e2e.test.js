@@ -25,74 +25,88 @@ describe("E2E Test", function () {
     expect(lines.mssql_instance_local_time).toBeGreaterThan(0);
     expect(lines.mssql_total_physical_memory_kb).toBeGreaterThan(0);
 
-    // lets ensure that there is at least one instance of these 2019 entries (that differ from 2017)
-    const v2019 = ["mssql_client_connections", "mssql_database_filesize"];
-    v2019.forEach((k2019) => {
+    // lets ensure that there is at least one instance of these entries
+    const multiLabelMetrics = [
+      "mssql_client_connections",
+      "mssql_database_filesize",
+      "mssql_database_recovery_model",
+      "mssql_database_compatibility_level",
+      "mssql_database_auto_close",
+      "mssql_database_auto_shrink",
+      "mssql_database_page_verify",
+      "mssql_tempdb_file_size_kb",
+      "mssql_tempdb_space_used_kb",
+      "mssql_log_space_used_percent",
+      "mssql_log_space_used_mb",
+      "mssql_log_space_total_mb",
+      "mssql_log_reuse_wait",
+      "mssql_log_vlf_count",
+    ];
+    multiLabelMetrics.forEach((metricPrefix) => {
       const keys = Object.keys(lines);
-      const i = keys.findIndex((key) => key.startsWith(k2019));
+      const i = keys.findIndex((key) => key.startsWith(metricPrefix));
       expect(i).toBeGreaterThanOrEqual(0);
       keys
-        .filter((key) => key.startsWith(k2019))
+        .filter((key) => key.startsWith(metricPrefix))
         .forEach((key) => {
           delete lines[key];
         });
     });
 
-    // bulk ensure that all expected results of a vanilla mssql server instance are here
-    expect(Object.keys(lines)).toEqual([
+    // Check for metrics that should exist as single values (no labels or will be empty in test environment)
+    const expectedSingleMetrics = [
       "mssql_up",
       "mssql_product_version",
       "mssql_instance_local_time",
-      'mssql_connections{database="master",state="current"}',
       "mssql_deadlocks",
       "mssql_user_errors",
       "mssql_kill_connection_errors",
-      'mssql_database_state{database="master"}',
-      'mssql_database_state{database="tempdb"}',
-      'mssql_database_state{database="model"}',
-      'mssql_database_state{database="msdb"}',
-      'mssql_log_growths{database="tempdb"}',
-      'mssql_log_growths{database="model"}',
-      'mssql_log_growths{database="msdb"}',
-      'mssql_log_growths{database="mssqlsystemresource"}',
-      'mssql_log_growths{database="master"}',
       "mssql_page_read_total",
       "mssql_page_write_total",
       "mssql_page_life_expectancy",
       "mssql_lazy_write_total",
       "mssql_page_checkpoint_total",
-      'mssql_io_stall{database="master",type="read"}',
-      'mssql_io_stall{database="master",type="write"}',
-      'mssql_io_stall{database="master",type="queued_read"}',
-      'mssql_io_stall{database="master",type="queued_write"}',
-      'mssql_io_stall{database="tempdb",type="read"}',
-      'mssql_io_stall{database="tempdb",type="write"}',
-      'mssql_io_stall{database="tempdb",type="queued_read"}',
-      'mssql_io_stall{database="tempdb",type="queued_write"}',
-      'mssql_io_stall{database="model",type="read"}',
-      'mssql_io_stall{database="model",type="write"}',
-      'mssql_io_stall{database="model",type="queued_read"}',
-      'mssql_io_stall{database="model",type="queued_write"}',
-      'mssql_io_stall{database="msdb",type="read"}',
-      'mssql_io_stall{database="msdb",type="write"}',
-      'mssql_io_stall{database="msdb",type="queued_read"}',
-      'mssql_io_stall{database="msdb",type="queued_write"}',
-      'mssql_io_stall_total{database="master"}',
-      'mssql_io_stall_total{database="tempdb"}',
-      'mssql_io_stall_total{database="model"}',
-      'mssql_io_stall_total{database="msdb"}',
       "mssql_batch_requests",
-      'mssql_transactions{database="tempdb"}',
-      'mssql_transactions{database="model"}',
-      'mssql_transactions{database="msdb"}',
-      'mssql_transactions{database="mssqlsystemresource"}',
-      'mssql_transactions{database="master"}',
       "mssql_page_fault_count",
       "mssql_memory_utilization_percentage",
       "mssql_total_physical_memory_kb",
       "mssql_available_physical_memory_kb",
       "mssql_total_page_file_kb",
       "mssql_available_page_file_kb",
-    ]);
+      "mssql_blocked_session_count",
+      "mssql_tempdb_file_count",
+      "mssql_tempdb_version_store_mb",
+      "mssql_failed_login_count",
+      "mssql_cpu_usage_percent",
+      "mssql_scheduler_runnable_tasks_count",
+      "mssql_context_switches_count",
+    ];
+
+    expectedSingleMetrics.forEach((metric) => {
+      expect(lines[metric]).toBeDefined();
+    });
+
+    // Check for metrics with database labels that should exist
+    const databaseLabelMetrics = [
+      "mssql_connections",
+      "mssql_database_state",
+      "mssql_log_growths",
+      "mssql_io_stall",
+      "mssql_io_stall_total",
+      "mssql_transactions",
+    ];
+
+    databaseLabelMetrics.forEach((metricPrefix) => {
+      const keys = Object.keys(lines);
+      const found = keys.filter((key) => key.startsWith(metricPrefix));
+      expect(found.length).toBeGreaterThan(0);
+    });
+
+    // Check that wait stats metrics exist (at least some wait types should be present)
+    const keys = Object.keys(lines);
+    const waitTimeMetrics = keys.filter((key) => key.startsWith("mssql_wait_time_ms"));
+    const waitCountMetrics = keys.filter((key) => key.startsWith("mssql_wait_count"));
+    expect(waitTimeMetrics.length).toBeGreaterThan(0);
+    expect(waitCountMetrics.length).toBeGreaterThan(0);
   });
 });

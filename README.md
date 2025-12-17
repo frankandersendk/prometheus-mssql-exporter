@@ -2,32 +2,103 @@
 
 Prometheus exporter for Microsoft SQL Server (MSSQL). Exposes the following metrics
 
+## Core Metrics
 - mssql_up UP Status
 - mssql_product_version Instance version (Major.Minor)
 - mssql_instance_local_time Number of seconds since epoch on local instance
+
+## Connection Metrics
 - mssql_connections{database,state} Number of active connections
 - mssql_client_connections{client,database} Number of active client connections
+
+## Error Metrics
 - mssql_deadlocks Number of lock requests per second that resulted in a deadlock since last restart
 - mssql_user_errors Number of user errors/sec since last restart
 - mssql_kill_connection_errors Number of kill connection errors/sec since last restart
+
+## Database Metrics
 - mssql_database_state{database} Databases states: 0=ONLINE 1=RESTORING 2=RECOVERING 3=RECOVERY_PENDING 4=SUSPECT 5=EMERGENCY 6=OFFLINE 7=COPYING 10=OFFLINE_SECONDARY
 - mssql_log_growths{database} Total number of times the transaction log for the database has been expanded last restart
 - mssql_database_filesize{database,logicalname,type,filename} Physical sizes of files used by database in KB, their names and types (0=rows, 1=log, 2=filestream,3=n/a 4=fulltext(before v2008 of MSSQL))
+
+## Database Properties
+- mssql_database_recovery_model{database} Database recovery model (1=FULL, 2=BULK_LOGGED, 3=SIMPLE)
+- mssql_database_compatibility_level{database} Database compatibility level
+- mssql_database_auto_close{database} Database auto close setting (0=OFF, 1=ON)
+- mssql_database_auto_shrink{database} Database auto shrink setting (0=OFF, 1=ON)
+- mssql_database_page_verify{database} Database page verify option (0=NONE, 1=TORN_PAGE_DETECTION, 2=CHECKSUM)
+
+## Buffer Manager Metrics
 - mssql_page_read_total Page reads/sec
 - mssql_page_write_total Page writes/sec
 - mssql_page_life_expectancy Indicates the minimum number of seconds a page will stay in the buffer pool on this node without references. The traditional advice from Microsoft used to be that the PLE should remain above 300 seconds
 - mssql_lazy_write_total Lazy writes/sec
 - mssql_page_checkpoint_total Checkpoint pages/sec
+
+## I/O Metrics
 - mssql_io_stall{database,type} Wait time (ms) of stall since last restart
 - mssql_io_stall_total{database} Wait time (ms) of stall since last restart
+
+## Transaction Metrics
 - mssql_batch_requests Number of Transact-SQL command batches received per second. This statistic is affected by all constraints (such as I/O, number of users, cachesize, complexity of requests, and so on). High batch requests mean good throughput
 - mssql_transactions{database} Number of transactions started for the database per second. Transactions/sec does not count XTP-only transactions (transactions started by a natively compiled stored procedure.)
+
+## Memory Metrics
 - mssql_page_fault_count Number of page faults since last restart
 - mssql_memory_utilization_percentage Percentage of memory utilization
 - mssql_total_physical_memory_kb Total physical memory in KB
 - mssql_available_physical_memory_kb Available physical memory in KB
 - mssql_total_page_file_kb Total page file in KB
 - mssql_available_page_file_kb Available page file in KB
+
+## SQL Agent Job Metrics
+- mssql_sql_agent_job_status{job_name,job_id,enabled} SQL Agent job last run status (0=Failed, 1=Succeeded, 2=Retry, 3=Canceled, 4=In Progress)
+- mssql_sql_agent_job_last_run_seconds{job_name,job_id} SQL Agent job last run time in seconds since epoch
+- mssql_sql_agent_job_next_run_seconds{job_name,job_id} SQL Agent job next scheduled run time in seconds since epoch
+- mssql_sql_agent_job_last_duration_seconds{job_name,job_id} SQL Agent job last run duration in seconds
+
+## Backup Metrics
+- mssql_database_backup_last_full_seconds{database} Last full backup time in seconds since epoch
+- mssql_database_backup_last_diff_seconds{database} Last differential backup time in seconds since epoch
+- mssql_database_backup_last_log_seconds{database} Last transaction log backup time in seconds since epoch
+- mssql_database_backup_age_full_hours{database} Hours since last full backup
+- mssql_database_backup_age_diff_hours{database} Hours since last differential backup
+- mssql_database_backup_age_log_hours{database} Hours since last transaction log backup
+- mssql_database_backup_size_mb{database,type} Last backup size in MB
+
+## AlwaysOn Availability Groups Metrics
+- mssql_ag_replica_role{ag_name,replica_server} Availability group replica role (0=Resolving, 1=Primary, 2=Secondary)
+- mssql_ag_replica_sync_state{ag_name,replica_server,database} Availability group replica synchronization state (0=NotSynchronizing, 1=Synchronizing, 2=Synchronized, 3=Reverting, 4=Initializing)
+- mssql_ag_replica_sync_health{ag_name,replica_server} Availability group replica synchronization health (0=NotHealthy, 1=PartiallyHealthy, 2=Healthy)
+- mssql_ag_log_send_queue_size_kb{ag_name,replica_server,database} Availability group log send queue size in KB
+- mssql_ag_redo_queue_size_kb{ag_name,replica_server,database} Availability group redo queue size in KB
+
+## Blocking & Wait Metrics
+- mssql_blocked_session_count Number of currently blocked sessions
+- mssql_blocking_session_wait_time_ms{database,wait_type} Wait time in milliseconds for blocked sessions
+- mssql_wait_time_ms{wait_type,category} Wait time in milliseconds by wait type since last restart
+- mssql_wait_count{wait_type,category} Number of waits by wait type since last restart
+
+## TempDB Metrics
+- mssql_tempdb_file_count Number of TempDB data files
+- mssql_tempdb_file_size_kb{file_name,file_type} TempDB file size in KB
+- mssql_tempdb_space_used_kb{file_name} TempDB space used in KB
+- mssql_tempdb_version_store_mb TempDB version store size in MB
+
+## Transaction Log Metrics
+- mssql_log_space_used_percent{database} Transaction log space used percentage
+- mssql_log_space_used_mb{database} Transaction log space used in MB
+- mssql_log_space_total_mb{database} Transaction log total space in MB
+- mssql_log_reuse_wait{database} Transaction log reuse wait reason
+- mssql_log_vlf_count{database} Virtual log file count
+
+## Security & Audit Metrics
+- mssql_failed_login_count Number of failed login attempts
+
+## CPU & Scheduler Metrics
+- mssql_cpu_usage_percent SQL Server CPU usage percentage
+- mssql_scheduler_runnable_tasks_count Number of runnable tasks waiting on schedulers
+- mssql_context_switches_count Number of context switches since last restart
 
 Please feel free to submit other interesting metrics to include.
 

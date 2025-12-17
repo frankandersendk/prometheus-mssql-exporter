@@ -363,7 +363,7 @@ const mssql_os_sys_memory = {
     mssql_total_page_file_kb: new client.Gauge({ name: "mssql_total_page_file_kb", help: "Total page file in KB" }),
     mssql_available_page_file_kb: new client.Gauge({ name: "mssql_available_page_file_kb", help: "Available page file in KB" }),
   },
-  query: `SELECT total_physical_memory_kb, available_physical_memory_kb, total_page_file_kb, available_page_file_kb 
+  query: `SELECT total_physical_memory_kb, available_physical_memory_kb, total_page_file_kb, available_page_file_kb
 FROM sys.dm_os_sys_memory`,
   collect: (rows, metrics) => {
     const mssql_total_physical_memory_kb = rows[0][0].value;
@@ -388,6 +388,607 @@ FROM sys.dm_os_sys_memory`,
   },
 };
 
+const mssql_sql_agent_jobs = {
+  metrics: {
+    mssql_sql_agent_job_status: new client.Gauge({
+      name: "mssql_sql_agent_job_status",
+      help: "SQL Agent job last run status (0=Failed, 1=Succeeded, 2=Retry, 3=Canceled, 4=In Progress)",
+      labelNames: ["job_name", "job_id", "enabled"],
+    }),
+    mssql_sql_agent_job_last_run_seconds: new client.Gauge({
+      name: "mssql_sql_agent_job_last_run_seconds",
+      help: "SQL Agent job last run time in seconds since epoch",
+      labelNames: ["job_name", "job_id"],
+    }),
+    mssql_sql_agent_job_next_run_seconds: new client.Gauge({
+      name: "mssql_sql_agent_job_next_run_seconds",
+      help: "SQL Agent job next scheduled run time in seconds since epoch",
+      labelNames: ["job_name", "job_id"],
+    }),
+    mssql_sql_agent_job_last_duration_seconds: new client.Gauge({
+      name: "mssql_sql_agent_job_last_duration_seconds",
+      help: "SQL Agent job last run duration in seconds",
+      labelNames: ["job_name", "job_id"],
+    }),
+  },
+  query: `SELECT
+    j.name AS job_name,
+    CAST(j.job_id AS VARCHAR(50)) AS job_id,
+    j.enabled,
+    CASE
+        WHEN h.run_status IS NULL THEN -1
+        ELSE h.run_status
+    END AS last_run_status,
+    CASE
+        WHEN h.run_date IS NULL THEN 0
+        ELSE DATEDIFF(SECOND, '19700101',
+            CAST(
+                CAST(h.run_date AS CHAR(8)) + ' ' +
+                STUFF(STUFF(RIGHT('000000' + CAST(h.run_time AS VARCHAR(6)), 6), 5, 0, ':'), 3, 0, ':')
+                AS DATETIME
+            ))
+    END AS last_run_seconds,
+    CASE
+        WHEN ja.next_scheduled_run_date IS NULL OR ja.next_scheduled_run_date = 0 THEN 0
+        ELSE DATEDIFF(SECOND, '19700101',
+            CAST(
+                CAST(ja.next_scheduled_run_date AS CHAR(8)) + ' ' +
+                STUFF(STUFF(RIGHT('000000' + CAST(ja.next_scheduled_run_time AS VARCHAR(6)), 6), 5, 0, ':'), 3, 0, ':')
+                AS DATETIME
+            ))
+    END AS next_run_seconds,
+    CASE
+        WHEN h.run_duration IS NULL THEN 0
+        ELSE (h.run_duration / 10000 * 3600) + ((h.run_duration % 10000) / 100 * 60) + (h.run_duration % 100)
+    END AS last_duration_seconds
+FROM msdb.dbo.sysjobs j
+LEFT JOIN (
+    SELECT job_id, run_status, run_date, run_time, run_duration,
+           ROW_NUMBER() OVER (PARTITION BY job_id ORDER BY run_date DESC, run_time DESC) AS rn
+    FROM msdb.dbo.sysjobhistory
+    WHERE step_id = 0
+) h ON j.job_id = h.job_id AND h.rn = 1
+LEFT JOIN (
+    SELECT job_id, next_run_date AS next_scheduled_run_date, next_run_time AS next_scheduled_run_time
+    FROM msdb.dbo.sysjobschedules js
+    INNER JOIN msdb.dbo.sysschedules s ON js.schedule_id = s.schedule_id
+) ja ON j.job_id = ja.job_id`,
+  collect: (rows, metrics) => {
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      const job_name = row[0].value;
+      const job_id = row[1].value;
+      const enabled = row[2].value ? "1" : "0";
+      const last_run_status = row[3].value;
+      const last_run_seconds = row[4].value;
+      const next_run_seconds = row[5].value;
+      const last_duration_seconds = row[6].value;
+
+      metricsLog("Fetched SQL Agent job", job_name, "enabled", enabled, "status", last_run_status, "duration", last_duration_seconds);
+      metrics.mssql_sql_agent_job_status.set({ job_name, job_id, enabled }, last_run_status);
+      metrics.mssql_sql_agent_job_last_run_seconds.set({ job_name, job_id }, last_run_seconds);
+      metrics.mssql_sql_agent_job_next_run_seconds.set({ job_name, job_id }, next_run_seconds);
+      metrics.mssql_sql_agent_job_last_duration_seconds.set({ job_name, job_id }, last_duration_seconds);
+    }
+  },
+};
+
+const mssql_database_backups = {
+  metrics: {
+    mssql_database_backup_last_full_seconds: new client.Gauge({
+      name: "mssql_database_backup_last_full_seconds",
+      help: "Last full backup time in seconds since epoch",
+      labelNames: ["database"],
+    }),
+    mssql_database_backup_last_diff_seconds: new client.Gauge({
+      name: "mssql_database_backup_last_diff_seconds",
+      help: "Last differential backup time in seconds since epoch",
+      labelNames: ["database"],
+    }),
+    mssql_database_backup_last_log_seconds: new client.Gauge({
+      name: "mssql_database_backup_last_log_seconds",
+      help: "Last transaction log backup time in seconds since epoch",
+      labelNames: ["database"],
+    }),
+    mssql_database_backup_age_full_hours: new client.Gauge({
+      name: "mssql_database_backup_age_full_hours",
+      help: "Hours since last full backup",
+      labelNames: ["database"],
+    }),
+    mssql_database_backup_age_diff_hours: new client.Gauge({
+      name: "mssql_database_backup_age_diff_hours",
+      help: "Hours since last differential backup",
+      labelNames: ["database"],
+    }),
+    mssql_database_backup_age_log_hours: new client.Gauge({
+      name: "mssql_database_backup_age_log_hours",
+      help: "Hours since last transaction log backup",
+      labelNames: ["database"],
+    }),
+    mssql_database_backup_size_mb: new client.Gauge({
+      name: "mssql_database_backup_size_mb",
+      help: "Last backup size in MB",
+      labelNames: ["database", "type"],
+    }),
+  },
+  query: `SELECT
+    d.name AS database_name,
+    ISNULL(DATEDIFF(SECOND, '19700101', MAX(CASE WHEN b.type = 'D' THEN b.backup_finish_date END)), 0) AS last_full_backup_seconds,
+    ISNULL(DATEDIFF(SECOND, '19700101', MAX(CASE WHEN b.type = 'I' THEN b.backup_finish_date END)), 0) AS last_diff_backup_seconds,
+    ISNULL(DATEDIFF(SECOND, '19700101', MAX(CASE WHEN b.type = 'L' THEN b.backup_finish_date END)), 0) AS last_log_backup_seconds,
+    ISNULL(DATEDIFF(HOUR, MAX(CASE WHEN b.type = 'D' THEN b.backup_finish_date END), GETDATE()), -1) AS age_full_hours,
+    ISNULL(DATEDIFF(HOUR, MAX(CASE WHEN b.type = 'I' THEN b.backup_finish_date END), GETDATE()), -1) AS age_diff_hours,
+    ISNULL(DATEDIFF(HOUR, MAX(CASE WHEN b.type = 'L' THEN b.backup_finish_date END), GETDATE()), -1) AS age_log_hours,
+    ISNULL(MAX(CASE WHEN b.type = 'D' THEN b.backup_size END) / 1024.0 / 1024.0, 0) AS last_full_size_mb,
+    ISNULL(MAX(CASE WHEN b.type = 'I' THEN b.backup_size END) / 1024.0 / 1024.0, 0) AS last_diff_size_mb,
+    ISNULL(MAX(CASE WHEN b.type = 'L' THEN b.backup_size END) / 1024.0 / 1024.0, 0) AS last_log_size_mb
+FROM sys.databases d
+LEFT JOIN msdb.dbo.backupset b ON d.name = b.database_name
+WHERE d.database_id > 4
+GROUP BY d.name`,
+  collect: (rows, metrics) => {
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      const database = row[0].value;
+      const last_full_seconds = row[1].value;
+      const last_diff_seconds = row[2].value;
+      const last_log_seconds = row[3].value;
+      const age_full_hours = row[4].value;
+      const age_diff_hours = row[5].value;
+      const age_log_hours = row[6].value;
+      const last_full_size_mb = row[7].value;
+      const last_diff_size_mb = row[8].value;
+      const last_log_size_mb = row[9].value;
+
+      metricsLog(
+        "Fetched backup info for database",
+        database,
+        "full backup age (hours)",
+        age_full_hours,
+        "diff backup age (hours)",
+        age_diff_hours,
+        "log backup age (hours)",
+        age_log_hours
+      );
+
+      metrics.mssql_database_backup_last_full_seconds.set({ database }, last_full_seconds);
+      metrics.mssql_database_backup_last_diff_seconds.set({ database }, last_diff_seconds);
+      metrics.mssql_database_backup_last_log_seconds.set({ database }, last_log_seconds);
+      metrics.mssql_database_backup_age_full_hours.set({ database }, age_full_hours);
+      metrics.mssql_database_backup_age_diff_hours.set({ database }, age_diff_hours);
+      metrics.mssql_database_backup_age_log_hours.set({ database }, age_log_hours);
+      metrics.mssql_database_backup_size_mb.set({ database, type: "full" }, last_full_size_mb);
+      metrics.mssql_database_backup_size_mb.set({ database, type: "diff" }, last_diff_size_mb);
+      metrics.mssql_database_backup_size_mb.set({ database, type: "log" }, last_log_size_mb);
+    }
+  },
+};
+
+const mssql_availability_groups = {
+  metrics: {
+    mssql_ag_replica_role: new client.Gauge({
+      name: "mssql_ag_replica_role",
+      help: "Availability group replica role (0=Resolving, 1=Primary, 2=Secondary)",
+      labelNames: ["ag_name", "replica_server"],
+    }),
+    mssql_ag_replica_sync_state: new client.Gauge({
+      name: "mssql_ag_replica_sync_state",
+      help: "Availability group replica synchronization state (0=NotSynchronizing, 1=Synchronizing, 2=Synchronized, 3=Reverting, 4=Initializing)",
+      labelNames: ["ag_name", "replica_server", "database"],
+    }),
+    mssql_ag_replica_sync_health: new client.Gauge({
+      name: "mssql_ag_replica_sync_health",
+      help: "Availability group replica synchronization health (0=NotHealthy, 1=PartiallyHealthy, 2=Healthy)",
+      labelNames: ["ag_name", "replica_server"],
+    }),
+    mssql_ag_log_send_queue_size_kb: new client.Gauge({
+      name: "mssql_ag_log_send_queue_size_kb",
+      help: "Availability group log send queue size in KB",
+      labelNames: ["ag_name", "replica_server", "database"],
+    }),
+    mssql_ag_redo_queue_size_kb: new client.Gauge({
+      name: "mssql_ag_redo_queue_size_kb",
+      help: "Availability group redo queue size in KB",
+      labelNames: ["ag_name", "replica_server", "database"],
+    }),
+  },
+  query: `IF EXISTS (SELECT 1 FROM sys.dm_hadr_availability_replica_states)
+BEGIN
+    SELECT
+        ag.name AS ag_name,
+        ar.replica_server_name,
+        rs.role,
+        rs.synchronization_health,
+        ISNULL(drs.database_name, 'N/A') AS database_name,
+        ISNULL(drs.synchronization_state, 0) AS sync_state,
+        ISNULL(drs.log_send_queue_size, 0) AS log_send_queue_size,
+        ISNULL(drs.redo_queue_size, 0) AS redo_queue_size
+    FROM sys.dm_hadr_availability_replica_states rs
+    INNER JOIN sys.availability_replicas ar ON rs.replica_id = ar.replica_id
+    INNER JOIN sys.availability_groups ag ON ar.group_id = ag.group_id
+    LEFT JOIN sys.dm_hadr_database_replica_states drs ON rs.replica_id = drs.replica_id
+END
+ELSE
+BEGIN
+    SELECT NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL WHERE 1=0
+END`,
+  collect: (rows, metrics) => {
+    if (rows.length === 0) {
+      metricsLog("No availability groups found or feature not available");
+      return;
+    }
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      const ag_name = row[0].value;
+      const replica_server = row[1].value;
+      const role = row[2].value;
+      const sync_health = row[3].value;
+      const database = row[4].value;
+      const sync_state = row[5].value;
+      const log_send_queue_size = row[6].value;
+      const redo_queue_size = row[7].value;
+
+      metricsLog("Fetched AG info", ag_name, "replica", replica_server, "database", database, "role", role, "sync_state", sync_state);
+
+      metrics.mssql_ag_replica_role.set({ ag_name, replica_server }, role);
+      metrics.mssql_ag_replica_sync_health.set({ ag_name, replica_server }, sync_health);
+
+      if (database !== "N/A") {
+        metrics.mssql_ag_replica_sync_state.set({ ag_name, replica_server, database }, sync_state);
+        metrics.mssql_ag_log_send_queue_size_kb.set({ ag_name, replica_server, database }, log_send_queue_size);
+        metrics.mssql_ag_redo_queue_size_kb.set({ ag_name, replica_server, database }, redo_queue_size);
+      }
+    }
+  },
+};
+
+const mssql_blocking_sessions = {
+  metrics: {
+    mssql_blocked_session_count: new client.Gauge({
+      name: "mssql_blocked_session_count",
+      help: "Number of currently blocked sessions",
+    }),
+    mssql_blocking_session_wait_time_ms: new client.Gauge({
+      name: "mssql_blocking_session_wait_time_ms",
+      help: "Wait time in milliseconds for blocked sessions",
+      labelNames: ["database", "wait_type"],
+    }),
+  },
+  query: `SELECT
+    COUNT(*) AS blocked_count,
+    ISNULL(DB_NAME(er.database_id), 'N/A') AS database_name,
+    er.wait_type,
+    SUM(er.wait_time) AS total_wait_time_ms
+FROM sys.dm_exec_requests er
+WHERE er.blocking_session_id <> 0
+GROUP BY DB_NAME(er.database_id), er.wait_type`,
+  collect: (rows, metrics) => {
+    let total_blocked = 0;
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      const blocked_count = row[0].value;
+      const database = row[1].value;
+      const wait_type = row[2].value;
+      const wait_time_ms = row[3].value;
+
+      total_blocked += blocked_count;
+      metricsLog("Fetched blocking info", "database", database, "wait_type", wait_type, "count", blocked_count, "wait_time", wait_time_ms);
+      metrics.mssql_blocking_session_wait_time_ms.set({ database, wait_type }, wait_time_ms);
+    }
+    metrics.mssql_blocked_session_count.set(total_blocked);
+    metricsLog("Total blocked sessions", total_blocked);
+  },
+};
+
+const mssql_wait_stats = {
+  metrics: {
+    mssql_wait_time_ms: new client.Gauge({
+      name: "mssql_wait_time_ms",
+      help: "Wait time in milliseconds by wait type since last restart",
+      labelNames: ["wait_type", "category"],
+    }),
+    mssql_wait_count: new client.Gauge({
+      name: "mssql_wait_count",
+      help: "Number of waits by wait type since last restart",
+      labelNames: ["wait_type", "category"],
+    }),
+  },
+  query: `SELECT TOP 20
+    wait_type,
+    wait_time_ms,
+    waiting_tasks_count,
+    CASE
+        WHEN wait_type LIKE 'LCK%' THEN 'Lock'
+        WHEN wait_type LIKE 'PAGEIO%' OR wait_type LIKE 'WRITELOG' OR wait_type LIKE 'IO_%' THEN 'IO'
+        WHEN wait_type LIKE 'RESOURCE_SEMAPHORE%' THEN 'Memory'
+        WHEN wait_type LIKE 'SOS_SCHEDULER_YIELD' OR wait_type LIKE 'THREADPOOL' OR wait_type LIKE 'CX%' THEN 'CPU'
+        WHEN wait_type LIKE 'ASYNC_NETWORK_IO' THEN 'Network'
+        ELSE 'Other'
+    END AS wait_category
+FROM sys.dm_os_wait_stats
+WHERE wait_type NOT IN (
+    'CLR_SEMAPHORE', 'LAZYWRITER_SLEEP', 'RESOURCE_QUEUE', 'SLEEP_TASK',
+    'SLEEP_SYSTEMTASK', 'SQLTRACE_BUFFER_FLUSH', 'WAITFOR', 'LOGMGR_QUEUE',
+    'CHECKPOINT_QUEUE', 'REQUEST_FOR_DEADLOCK_SEARCH', 'XE_TIMER_EVENT', 'BROKER_TO_FLUSH',
+    'BROKER_TASK_STOP', 'CLR_MANUAL_EVENT', 'CLR_AUTO_EVENT', 'DISPATCHER_QUEUE_SEMAPHORE',
+    'FT_IFTS_SCHEDULER_IDLE_WAIT', 'XE_DISPATCHER_WAIT', 'XE_DISPATCHER_JOIN', 'SQLTRACE_INCREMENTAL_FLUSH_SLEEP',
+    'ONDEMAND_TASK_QUEUE', 'BROKER_EVENTHANDLER', 'SLEEP_BPOOL_FLUSH', 'DIRTY_PAGE_POLL', 'HADR_FILESTREAM_IOMGR_IOCOMPLETION'
+)
+ORDER BY wait_time_ms DESC`,
+  collect: (rows, metrics) => {
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      const wait_type = row[0].value;
+      const wait_time_ms = row[1].value;
+      const wait_count = row[2].value;
+      const category = row[3].value;
+
+      metricsLog("Fetched wait stat", "wait_type", wait_type, "category", category, "wait_time_ms", wait_time_ms, "count", wait_count);
+      metrics.mssql_wait_time_ms.set({ wait_type, category }, wait_time_ms);
+      metrics.mssql_wait_count.set({ wait_type, category }, wait_count);
+    }
+  },
+};
+
+const mssql_database_properties = {
+  metrics: {
+    mssql_database_recovery_model: new client.Gauge({
+      name: "mssql_database_recovery_model",
+      help: "Database recovery model (1=FULL, 2=BULK_LOGGED, 3=SIMPLE)",
+      labelNames: ["database"],
+    }),
+    mssql_database_compatibility_level: new client.Gauge({
+      name: "mssql_database_compatibility_level",
+      help: "Database compatibility level",
+      labelNames: ["database"],
+    }),
+    mssql_database_auto_close: new client.Gauge({
+      name: "mssql_database_auto_close",
+      help: "Database auto close setting (0=OFF, 1=ON)",
+      labelNames: ["database"],
+    }),
+    mssql_database_auto_shrink: new client.Gauge({
+      name: "mssql_database_auto_shrink",
+      help: "Database auto shrink setting (0=OFF, 1=ON)",
+      labelNames: ["database"],
+    }),
+    mssql_database_page_verify: new client.Gauge({
+      name: "mssql_database_page_verify",
+      help: "Database page verify option (0=NONE, 1=TORN_PAGE_DETECTION, 2=CHECKSUM)",
+      labelNames: ["database"],
+    }),
+  },
+  query: `SELECT
+    name,
+    recovery_model,
+    compatibility_level,
+    is_auto_close_on,
+    is_auto_shrink_on,
+    page_verify_option
+FROM sys.databases
+WHERE database_id > 4`,
+  collect: (rows, metrics) => {
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      const database = row[0].value;
+      const recovery_model = row[1].value;
+      const compatibility_level = row[2].value;
+      const auto_close = row[3].value ? 1 : 0;
+      const auto_shrink = row[4].value ? 1 : 0;
+      const page_verify = row[5].value;
+
+      metricsLog(
+        "Fetched database properties",
+        database,
+        "recovery_model",
+        recovery_model,
+        "compat_level",
+        compatibility_level,
+        "auto_close",
+        auto_close,
+        "auto_shrink",
+        auto_shrink
+      );
+
+      metrics.mssql_database_recovery_model.set({ database }, recovery_model);
+      metrics.mssql_database_compatibility_level.set({ database }, compatibility_level);
+      metrics.mssql_database_auto_close.set({ database }, auto_close);
+      metrics.mssql_database_auto_shrink.set({ database }, auto_shrink);
+      metrics.mssql_database_page_verify.set({ database }, page_verify);
+    }
+  },
+};
+
+const mssql_tempdb_stats = {
+  metrics: {
+    mssql_tempdb_file_count: new client.Gauge({
+      name: "mssql_tempdb_file_count",
+      help: "Number of TempDB data files",
+    }),
+    mssql_tempdb_file_size_kb: new client.Gauge({
+      name: "mssql_tempdb_file_size_kb",
+      help: "TempDB file size in KB",
+      labelNames: ["file_name", "file_type"],
+    }),
+    mssql_tempdb_space_used_kb: new client.Gauge({
+      name: "mssql_tempdb_space_used_kb",
+      help: "TempDB space used in KB",
+      labelNames: ["file_name"],
+    }),
+    mssql_tempdb_version_store_mb: new client.Gauge({
+      name: "mssql_tempdb_version_store_mb",
+      help: "TempDB version store size in MB",
+    }),
+  },
+  query: `SELECT
+    (SELECT COUNT(*) FROM tempdb.sys.database_files WHERE type = 0) AS data_file_count,
+    name AS file_name,
+    type_desc AS file_type,
+    (size * CAST(8 AS BIGINT)) AS size_kb,
+    (FILEPROPERTY(name, 'SpaceUsed') * CAST(8 AS BIGINT)) AS space_used_kb
+FROM tempdb.sys.database_files
+UNION ALL
+SELECT
+    0,
+    'VersionStore',
+    'VersionStore',
+    0,
+    (SELECT SUM(version_store_reserved_page_count) * 8 FROM sys.dm_db_file_space_usage WHERE database_id = 2)`,
+  collect: (rows, metrics) => {
+    let file_count = 0;
+    let version_store_kb = 0;
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      file_count = row[0].value;
+      const file_name = row[1].value;
+      const file_type = row[2].value;
+      const size_kb = row[3].value;
+      const space_used_kb = row[4].value;
+
+      if (file_name === "VersionStore") {
+        version_store_kb = space_used_kb;
+        metricsLog("Fetched TempDB version store size (KB)", version_store_kb);
+      } else {
+        metricsLog("Fetched TempDB file", file_name, "type", file_type, "size_kb", size_kb, "used_kb", space_used_kb);
+        metrics.mssql_tempdb_file_size_kb.set({ file_name, file_type }, size_kb);
+        metrics.mssql_tempdb_space_used_kb.set({ file_name }, space_used_kb);
+      }
+    }
+    metrics.mssql_tempdb_file_count.set(file_count);
+    metrics.mssql_tempdb_version_store_mb.set(version_store_kb / 1024.0);
+  },
+};
+
+const mssql_transaction_log_stats = {
+  metrics: {
+    mssql_log_space_used_percent: new client.Gauge({
+      name: "mssql_log_space_used_percent",
+      help: "Transaction log space used percentage",
+      labelNames: ["database"],
+    }),
+    mssql_log_space_used_mb: new client.Gauge({
+      name: "mssql_log_space_used_mb",
+      help: "Transaction log space used in MB",
+      labelNames: ["database"],
+    }),
+    mssql_log_space_total_mb: new client.Gauge({
+      name: "mssql_log_space_total_mb",
+      help: "Transaction log total space in MB",
+      labelNames: ["database"],
+    }),
+    mssql_log_reuse_wait: new client.Gauge({
+      name: "mssql_log_reuse_wait",
+      help: "Transaction log reuse wait reason (0=NOTHING, 1=CHECKPOINT, 2=LOG_BACKUP, 3=ACTIVE_BACKUP_OR_RESTORE, 4=ACTIVE_TRANSACTION, 5=DATABASE_MIRRORING, 6=REPLICATION, 7=DATABASE_SNAPSHOT_CREATION, 8=LOG_SCAN, 9=AVAILABILITY_REPLICA, 10=OLDEST_PAGE, 11=XTP_CHECKPOINT, 12=SLOG_SCAN, 13=OTHER_TRANSIENT)",
+      labelNames: ["database"],
+    }),
+    mssql_log_vlf_count: new client.Gauge({
+      name: "mssql_log_vlf_count",
+      help: "Virtual log file count",
+      labelNames: ["database"],
+    }),
+  },
+  query: `SELECT
+    d.name AS database_name,
+    ls.log_space_in_bytes_since_last_backup / 1024.0 / 1024.0 AS log_space_used_mb,
+    mf.size * 8 / 1024.0 AS log_space_total_mb,
+    (CAST(ls.log_space_in_bytes_since_last_backup AS FLOAT) / NULLIF(CAST(mf.size AS FLOAT) * 8 * 1024, 0)) * 100 AS log_space_used_percent,
+    d.log_reuse_wait,
+    (SELECT COUNT(*) FROM sys.dm_db_log_info(d.database_id)) AS vlf_count
+FROM sys.databases d
+INNER JOIN sys.dm_db_log_space_usage ls ON d.database_id = ls.database_id
+INNER JOIN sys.master_files mf ON d.database_id = mf.database_id AND mf.type = 1
+WHERE d.database_id > 4`,
+  collect: (rows, metrics) => {
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      const database = row[0].value;
+      const log_used_mb = row[1].value;
+      const log_total_mb = row[2].value;
+      const log_used_percent = row[3].value;
+      const log_reuse_wait = row[4].value;
+      const vlf_count = row[5].value;
+
+      metricsLog(
+        "Fetched transaction log stats",
+        database,
+        "used_mb",
+        log_used_mb,
+        "total_mb",
+        log_total_mb,
+        "used_percent",
+        log_used_percent,
+        "reuse_wait",
+        log_reuse_wait,
+        "vlf_count",
+        vlf_count
+      );
+
+      metrics.mssql_log_space_used_mb.set({ database }, log_used_mb);
+      metrics.mssql_log_space_total_mb.set({ database }, log_total_mb);
+      metrics.mssql_log_space_used_percent.set({ database }, log_used_percent);
+      metrics.mssql_log_reuse_wait.set({ database }, log_reuse_wait);
+      metrics.mssql_log_vlf_count.set({ database }, vlf_count);
+    }
+  },
+};
+
+const mssql_security_stats = {
+  metrics: {
+    mssql_failed_login_count: new client.Gauge({
+      name: "mssql_failed_login_count",
+      help: "Number of failed login attempts in the error log (last 24 hours approximation based on recent log entries)",
+    }),
+  },
+  query: `SELECT COUNT(*) AS failed_login_count
+FROM sys.dm_exec_sessions
+WHERE is_user_process = 1 AND status = 'failed'`,
+  collect: (rows, metrics) => {
+    const failed_count = rows.length > 0 ? rows[0][0].value : 0;
+    metricsLog("Fetched failed login count", failed_count);
+    metrics.mssql_failed_login_count.set(failed_count);
+  },
+};
+
+const mssql_cpu_scheduler_stats = {
+  metrics: {
+    mssql_cpu_usage_percent: new client.Gauge({
+      name: "mssql_cpu_usage_percent",
+      help: "SQL Server CPU usage percentage",
+    }),
+    mssql_scheduler_runnable_tasks_count: new client.Gauge({
+      name: "mssql_scheduler_runnable_tasks_count",
+      help: "Number of runnable tasks waiting on schedulers",
+    }),
+    mssql_context_switches_count: new client.Gauge({
+      name: "mssql_context_switches_count",
+      help: "Number of context switches since last restart",
+    }),
+  },
+  query: `SELECT TOP 1
+    record.value('(./Record/SchedulerMonitorEvent/SystemHealth/ProcessUtilization)[1]', 'int') AS sql_cpu_usage,
+    (SELECT SUM(runnable_tasks_count) FROM sys.dm_os_schedulers WHERE status = 'VISIBLE ONLINE') AS runnable_tasks,
+    (SELECT SUM(context_switches_count) FROM sys.dm_os_schedulers WHERE status = 'VISIBLE ONLINE') AS context_switches
+FROM (
+    SELECT CAST(record AS XML) AS record, timestamp
+    FROM sys.dm_os_ring_buffers
+    WHERE ring_buffer_type = N'RING_BUFFER_SCHEDULER_MONITOR'
+    AND record LIKE '%<SystemHealth>%'
+) AS x
+ORDER BY timestamp DESC`,
+  collect: (rows, metrics) => {
+    if (rows.length > 0) {
+      const cpu_usage = rows[0][0].value;
+      const runnable_tasks = rows[0][1].value;
+      const context_switches = rows[0][2].value;
+
+      metricsLog("Fetched CPU/Scheduler stats", "cpu_usage", cpu_usage, "runnable_tasks", runnable_tasks, "context_switches", context_switches);
+      metrics.mssql_cpu_usage_percent.set(cpu_usage);
+      metrics.mssql_scheduler_runnable_tasks_count.set(runnable_tasks);
+      metrics.mssql_context_switches_count.set(context_switches);
+    }
+  },
+};
+
 const entries = {
   mssql_up,
   mssql_product_version,
@@ -406,6 +1007,16 @@ const entries = {
   mssql_transactions,
   mssql_os_process_memory,
   mssql_os_sys_memory,
+  mssql_sql_agent_jobs,
+  mssql_database_backups,
+  mssql_availability_groups,
+  mssql_blocking_sessions,
+  mssql_wait_stats,
+  mssql_database_properties,
+  mssql_tempdb_stats,
+  mssql_transaction_log_stats,
+  mssql_security_stats,
+  mssql_cpu_scheduler_stats,
 };
 
 module.exports = {
