@@ -606,7 +606,7 @@ BEGIN
         ar.replica_server_name,
         rs.role,
         rs.synchronization_health,
-        ISNULL(drs.database_name, 'N/A') AS database_name,
+        ISNULL(DB_NAME(drs.database_id), 'N/A') AS database_name,
         ISNULL(drs.synchronization_state, 0) AS sync_state,
         ISNULL(drs.log_send_queue_size, 0) AS log_send_queue_size,
         ISNULL(drs.redo_queue_size, 0) AS redo_queue_size
@@ -853,12 +853,13 @@ SELECT
       const space_used_kb = row[4].value;
 
       if (file_name === "VersionStore") {
-        version_store_kb = space_used_kb;
+        version_store_kb = space_used_kb || 0;
         metricsLog("Fetched TempDB version store size (KB)", version_store_kb);
       } else {
-        metricsLog("Fetched TempDB file", file_name, "type", file_type, "size_kb", size_kb, "used_kb", space_used_kb);
+        const used = space_used_kb || 0;
+        metricsLog("Fetched TempDB file", file_name, "type", file_type, "size_kb", size_kb, "used_kb", used);
         metrics.mssql_tempdb_file_size_kb.set({ file_name, file_type }, size_kb);
-        metrics.mssql_tempdb_space_used_kb.set({ file_name }, space_used_kb);
+        metrics.mssql_tempdb_space_used_kb.set({ file_name }, used);
       }
     }
     metrics.mssql_tempdb_file_count.set(file_count);
