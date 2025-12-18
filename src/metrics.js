@@ -998,22 +998,26 @@ const mssql_security_stats = {
       help: "Number of failed login attempts in the error log (last 24 hours approximation based on recent log entries)",
     }),
   },
-  query: `DECLARE @failed_logins TABLE (
+  query: `IF OBJECT_ID('tempdb..#ErrorLog') IS NOT NULL DROP TABLE #ErrorLog;
+
+CREATE TABLE #ErrorLog (
     LogDate DATETIME,
     ProcessInfo NVARCHAR(100),
-    LogText NVARCHAR(4000)
+    [Text] NVARCHAR(4000)
 );
 
 BEGIN TRY
-    INSERT INTO @failed_logins
+    INSERT INTO #ErrorLog
     EXEC xp_readerrorlog 0, 1, N'Login failed';
 
     SELECT COUNT(*) AS failed_login_count
-    FROM @failed_logins
+    FROM #ErrorLog
     WHERE LogDate >= DATEADD(HOUR, -24, GETDATE());
+
+    DROP TABLE #ErrorLog;
 END TRY
 BEGIN CATCH
-    -- If xp_readerrorlog fails (permissions issue), return 0
+    IF OBJECT_ID('tempdb..#ErrorLog') IS NOT NULL DROP TABLE #ErrorLog;
     SELECT 0 AS failed_login_count;
 END CATCH`,
   collect: (rows, metrics) => {
