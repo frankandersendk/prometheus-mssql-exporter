@@ -998,26 +998,20 @@ const mssql_security_stats = {
       help: "Number of failed login attempts in the error log (last 24 hours approximation based on recent log entries)",
     }),
   },
-  query: `IF OBJECT_ID('tempdb..#ErrorLog') IS NOT NULL DROP TABLE #ErrorLog;
-
-CREATE TABLE #ErrorLog (
+  query: `CREATE TABLE #ErrorLog (
     LogDate DATETIME,
     ProcessInfo NVARCHAR(100),
     [Text] NVARCHAR(4000)
 );
 
-BEGIN TRY
-    INSERT INTO #ErrorLog
-    EXEC xp_readerrorlog 0, 1, N'Login failed';
-END TRY
-BEGIN CATCH
-    -- If xp_readerrorlog fails, just continue with empty table
-END CATCH;
+INSERT INTO #ErrorLog
+EXEC xp_readerrorlog 0, 1, N'Login failed';
 
 SELECT COUNT(*) AS failed_login_count
 FROM #ErrorLog
 WHERE LogDate >= DATEADD(HOUR, -24, GETDATE());`,
   collect: (rows, metrics) => {
+    metricsLog("Raw rows received:", JSON.stringify(rows));
     const failed_count = rows.length > 0 ? rows[0][0].value : 0;
     metricsLog("Fetched failed login count", failed_count);
     metrics.mssql_failed_login_count.set(failed_count);
