@@ -1048,6 +1048,425 @@ ORDER BY timestamp DESC`,
   },
 };
 
+// Database Growth & Capacity Planning
+const mssql_database_size_growth = {
+  metrics: {
+    mssql_database_data_size_mb: new client.Gauge({
+      name: "mssql_database_data_size_mb",
+      help: "Database data file size in MB",
+      labelNames: ["database"],
+    }),
+    mssql_database_log_size_mb: new client.Gauge({
+      name: "mssql_database_log_size_mb",
+      help: "Database log file size in MB",
+      labelNames: ["database"],
+    }),
+    mssql_database_data_used_mb: new client.Gauge({
+      name: "mssql_database_data_used_mb",
+      help: "Database data space used in MB",
+      labelNames: ["database"],
+    }),
+    mssql_database_data_free_mb: new client.Gauge({
+      name: "mssql_database_data_free_mb",
+      help: "Database data free space in MB",
+      labelNames: ["database"],
+    }),
+  },
+  query: `SELECT
+    DB_NAME(database_id) AS database_name,
+    SUM(CASE WHEN type = 0 THEN size * 8 / 1024.0 ELSE 0 END) AS data_size_mb,
+    SUM(CASE WHEN type = 1 THEN size * 8 / 1024.0 ELSE 0 END) AS log_size_mb,
+    SUM(CASE WHEN type = 0 THEN FILEPROPERTY(name, 'SpaceUsed') * 8 / 1024.0 ELSE 0 END) AS data_used_mb,
+    SUM(CASE WHEN type = 0 THEN (size - FILEPROPERTY(name, 'SpaceUsed')) * 8 / 1024.0 ELSE 0 END) AS data_free_mb
+FROM sys.master_files
+WHERE database_id > 4
+GROUP BY database_id`,
+  collect: (rows, metrics) => {
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      const database = row[0].value;
+      const data_size_mb = row[1].value;
+      const log_size_mb = row[2].value;
+      const data_used_mb = row[3].value;
+      const data_free_mb = row[4].value;
+
+      metricsLog("Fetched database size", database, "data_size", data_size_mb, "log_size", log_size_mb, "used", data_used_mb, "free", data_free_mb);
+      metrics.mssql_database_data_size_mb.set({ database }, data_size_mb);
+      metrics.mssql_database_log_size_mb.set({ database }, log_size_mb);
+      metrics.mssql_database_data_used_mb.set({ database }, data_used_mb);
+      metrics.mssql_database_data_free_mb.set({ database }, data_free_mb);
+    }
+  },
+};
+
+// Top Resource-Intensive Queries
+const mssql_top_queries = {
+  metrics: {
+    mssql_query_execution_count: new client.Gauge({
+      name: "mssql_query_execution_count",
+      help: "Query execution count since last restart",
+      labelNames: ["query_hash", "database"],
+    }),
+    mssql_query_total_cpu_ms: new client.Gauge({
+      name: "mssql_query_total_cpu_ms",
+      help: "Total CPU time for query in milliseconds",
+      labelNames: ["query_hash", "database"],
+    }),
+    mssql_query_total_elapsed_ms: new client.Gauge({
+      name: "mssql_query_total_elapsed_ms",
+      help: "Total elapsed time for query in milliseconds",
+      labelNames: ["query_hash", "database"],
+    }),
+    mssql_query_avg_elapsed_ms: new client.Gauge({
+      name: "mssql_query_avg_elapsed_ms",
+      help: "Average elapsed time per execution in milliseconds",
+      labelNames: ["query_hash", "database"],
+    }),
+  },
+  query: `SELECT TOP 20
+    CONVERT(VARCHAR(50), qs.query_hash) AS query_hash,
+    ISNULL(DB_NAME(qt.dbid), 'N/A') AS database_name,
+    qs.execution_count,
+    qs.total_worker_time / 1000 AS total_cpu_ms,
+    qs.total_elapsed_time / 1000 AS total_elapsed_ms,
+    (qs.total_elapsed_time / qs.execution_count) / 1000 AS avg_elapsed_ms
+FROM sys.dm_exec_query_stats qs
+CROSS APPLY sys.dm_exec_sql_text(qs.sql_handle) AS qt
+WHERE qs.query_hash IS NOT NULL
+ORDER BY qs.total_elapsed_time DESC`,
+  collect: (rows, metrics) => {
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      const query_hash = row[0].value;
+      const database = row[1].value;
+      const execution_count = row[2].value;
+      const total_cpu_ms = row[3].value;
+      const total_elapsed_ms = row[4].value;
+      const avg_elapsed_ms = row[5].value;
+
+      metricsLog("Fetched top query", "hash", query_hash, "db", database, "exec_count", execution_count, "avg_ms", avg_elapsed_ms);
+      metrics.mssql_query_execution_count.set({ query_hash, database }, execution_count);
+      metrics.mssql_query_total_cpu_ms.set({ query_hash, database }, total_cpu_ms);
+      metrics.mssql_query_total_elapsed_ms.set({ query_hash, database }, total_elapsed_ms);
+      metrics.mssql_query_avg_elapsed_ms.set({ query_hash, database }, avg_elapsed_ms);
+    }
+  },
+};
+
+// Missing Indexes
+const mssql_missing_indexes = {
+  metrics: {
+    mssql_missing_index_impact: new client.Gauge({
+      name: "mssql_missing_index_impact",
+      help: "Missing index improvement measure",
+      labelNames: ["database", "table", "index_handle"],
+    }),
+  },
+  query: `SELECT TOP 20
+    DB_NAME(d.database_id) AS database_name,
+    OBJECT_NAME(d.object_id, d.database_id) AS table_name,
+    CONVERT(VARCHAR(50), d.index_handle) AS index_handle,
+    (s.avg_total_user_cost * s.avg_user_impact * (s.user_seeks + s.user_scans)) AS improvement_measure
+FROM sys.dm_db_missing_index_details d
+INNER JOIN sys.dm_db_missing_index_groups g ON d.index_handle = g.index_handle
+INNER JOIN sys.dm_db_missing_index_group_stats s ON g.index_group_handle = s.group_handle
+WHERE d.database_id > 4
+ORDER BY improvement_measure DESC`,
+  collect: (rows, metrics) => {
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      const database = row[0].value;
+      const table = row[1].value;
+      const index_handle = row[2].value;
+      const impact = row[3].value;
+
+      metricsLog("Fetched missing index", "db", database, "table", table, "impact", impact);
+      metrics.mssql_missing_index_impact.set({ database, table, index_handle }, impact);
+    }
+  },
+};
+
+// Index Fragmentation
+const mssql_index_fragmentation = {
+  metrics: {
+    mssql_index_fragmentation_percent: new client.Gauge({
+      name: "mssql_index_fragmentation_percent",
+      help: "Index fragmentation percentage",
+      labelNames: ["database", "table", "index_name"],
+    }),
+    mssql_index_page_count: new client.Gauge({
+      name: "mssql_index_page_count",
+      help: "Number of pages in index",
+      labelNames: ["database", "table", "index_name"],
+    }),
+  },
+  query: `DECLARE @results TABLE (
+    database_name NVARCHAR(128),
+    table_name NVARCHAR(128),
+    index_name NVARCHAR(128),
+    fragmentation_percent DECIMAL(5,2),
+    page_count BIGINT
+);
+
+DECLARE @db_name NVARCHAR(128);
+DECLARE @sql NVARCHAR(MAX);
+
+DECLARE db_cursor CURSOR FOR
+SELECT name FROM sys.databases WHERE database_id > 4 AND state = 0;
+
+OPEN db_cursor;
+FETCH NEXT FROM db_cursor INTO @db_name;
+
+WHILE @@FETCH_STATUS = 0
+BEGIN
+    BEGIN TRY
+        SET @sql = N'USE [' + @db_name + N'];
+        INSERT INTO @results
+        SELECT TOP 20
+            DB_NAME() AS database_name,
+            OBJECT_NAME(ips.object_id) AS table_name,
+            i.name AS index_name,
+            ips.avg_fragmentation_in_percent,
+            ips.page_count
+        FROM sys.dm_db_index_physical_stats(DB_ID(), NULL, NULL, NULL, ''LIMITED'') ips
+        INNER JOIN sys.indexes i ON ips.object_id = i.object_id AND ips.index_id = i.index_id
+        WHERE ips.avg_fragmentation_in_percent > 10
+        AND ips.page_count > 100
+        AND i.name IS NOT NULL
+        ORDER BY ips.avg_fragmentation_in_percent DESC';
+
+        EXEC sp_executesql @sql;
+    END TRY
+    BEGIN CATCH
+        -- Skip databases that have errors
+    END CATCH
+
+    FETCH NEXT FROM db_cursor INTO @db_name;
+END
+
+CLOSE db_cursor;
+DEALLOCATE db_cursor;
+
+SELECT * FROM @results;`,
+  collect: (rows, metrics) => {
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      const database = row[0].value;
+      const table = row[1].value;
+      const index_name = row[2].value;
+      const fragmentation = row[3].value;
+      const page_count = row[4].value;
+
+      metricsLog("Fetched index fragmentation", "db", database, "table", table, "index", index_name, "frag%", fragmentation);
+      metrics.mssql_index_fragmentation_percent.set({ database, table, index_name }, fragmentation);
+      metrics.mssql_index_page_count.set({ database, table, index_name }, page_count);
+    }
+  },
+};
+
+// Long Running Sessions
+const mssql_long_running_sessions = {
+  metrics: {
+    mssql_long_running_session_count: new client.Gauge({
+      name: "mssql_long_running_session_count",
+      help: "Number of sessions running longer than threshold",
+    }),
+    mssql_long_running_session_duration_seconds: new client.Gauge({
+      name: "mssql_long_running_session_duration_seconds",
+      help: "Duration of long running sessions in seconds",
+      labelNames: ["session_id", "database", "status"],
+    }),
+  },
+  query: `SELECT
+    COUNT(*) AS long_session_count,
+    s.session_id,
+    ISNULL(DB_NAME(r.database_id), 'N/A') AS database_name,
+    r.status,
+    DATEDIFF(SECOND, r.start_time, GETDATE()) AS duration_seconds
+FROM sys.dm_exec_sessions s
+LEFT JOIN sys.dm_exec_requests r ON s.session_id = r.session_id
+WHERE s.is_user_process = 1
+AND r.start_time IS NOT NULL
+AND DATEDIFF(MINUTE, r.start_time, GETDATE()) > 5
+GROUP BY s.session_id, r.database_id, r.status, r.start_time`,
+  collect: (rows, metrics) => {
+    const total_count = rows.length;
+    metrics.mssql_long_running_session_count.set(total_count);
+    metricsLog("Fetched long running sessions", "count", total_count);
+
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      const session_id = row[1].value.toString();
+      const database = row[2].value;
+      const status = row[3].value;
+      const duration = row[4].value;
+
+      metrics.mssql_long_running_session_duration_seconds.set({ session_id, database, status }, duration);
+    }
+  },
+};
+
+// Disk Latency
+const mssql_disk_latency = {
+  metrics: {
+    mssql_disk_read_latency_ms: new client.Gauge({
+      name: "mssql_disk_read_latency_ms",
+      help: "Average disk read latency in milliseconds",
+      labelNames: ["database", "file_type"],
+    }),
+    mssql_disk_write_latency_ms: new client.Gauge({
+      name: "mssql_disk_write_latency_ms",
+      help: "Average disk write latency in milliseconds",
+      labelNames: ["database", "file_type"],
+    }),
+  },
+  query: `SELECT
+    DB_NAME(vfs.database_id) AS database_name,
+    CASE WHEN mf.type = 0 THEN 'DATA' ELSE 'LOG' END AS file_type,
+    CASE WHEN vfs.num_of_reads = 0 THEN 0 ELSE (vfs.io_stall_read_ms / vfs.num_of_reads) END AS read_latency_ms,
+    CASE WHEN vfs.num_of_writes = 0 THEN 0 ELSE (vfs.io_stall_write_ms / vfs.num_of_writes) END AS write_latency_ms
+FROM sys.dm_io_virtual_file_stats(NULL, NULL) vfs
+INNER JOIN sys.master_files mf ON vfs.database_id = mf.database_id AND vfs.file_id = mf.file_id
+WHERE vfs.database_id > 4`,
+  collect: (rows, metrics) => {
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      const database = row[0].value;
+      const file_type = row[1].value;
+      const read_latency = row[2].value;
+      const write_latency = row[3].value;
+
+      metricsLog("Fetched disk latency", "db", database, "type", file_type, "read_ms", read_latency, "write_ms", write_latency);
+      metrics.mssql_disk_read_latency_ms.set({ database, file_type }, read_latency);
+      metrics.mssql_disk_write_latency_ms.set({ database, file_type }, write_latency);
+    }
+  },
+};
+
+// Buffer Cache Hit Ratio
+const mssql_buffer_cache_hit_ratio = {
+  metrics: {
+    mssql_buffer_cache_hit_ratio_percent: new client.Gauge({
+      name: "mssql_buffer_cache_hit_ratio_percent",
+      help: "Buffer cache hit ratio percentage",
+    }),
+  },
+  query: `SELECT
+    (CAST(cntr_value AS DECIMAL(16,2)) /
+     (SELECT cntr_value FROM sys.dm_os_performance_counters
+      WHERE counter_name = 'Buffer cache hit ratio base'
+      AND object_name LIKE '%Buffer Manager%')) * 100 AS hit_ratio_percent
+FROM sys.dm_os_performance_counters
+WHERE counter_name = 'Buffer cache hit ratio'
+AND object_name LIKE '%Buffer Manager%'`,
+  collect: (rows, metrics) => {
+    if (rows.length > 0) {
+      const hit_ratio = rows[0][0].value;
+      metricsLog("Fetched buffer cache hit ratio", hit_ratio);
+      metrics.mssql_buffer_cache_hit_ratio_percent.set(hit_ratio);
+    }
+  },
+};
+
+// Blocking Chain Details
+const mssql_blocking_details = {
+  metrics: {
+    mssql_blocking_session_id: new client.Gauge({
+      name: "mssql_blocking_session_id",
+      help: "Blocking session ID information",
+      labelNames: ["blocked_session_id", "blocking_session_id", "database", "wait_type"],
+    }),
+  },
+  query: `SELECT
+    r.session_id AS blocked_session_id,
+    r.blocking_session_id,
+    ISNULL(DB_NAME(r.database_id), 'N/A') AS database_name,
+    r.wait_type,
+    r.wait_time
+FROM sys.dm_exec_requests r
+WHERE r.blocking_session_id <> 0`,
+  collect: (rows, metrics) => {
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      const blocked_session = row[0].value.toString();
+      const blocking_session = row[1].value.toString();
+      const database = row[2].value;
+      const wait_type = row[3].value;
+      const wait_time = row[4].value;
+
+      metricsLog("Fetched blocking chain", "blocked", blocked_session, "blocker", blocking_session, "wait", wait_time);
+      metrics.mssql_blocking_session_id.set({ blocked_session_id: blocked_session, blocking_session_id: blocking_session, database, wait_type }, wait_time);
+    }
+  },
+};
+
+// Statistics Age
+const mssql_statistics_age = {
+  metrics: {
+    mssql_statistics_days_old: new client.Gauge({
+      name: "mssql_statistics_days_old",
+      help: "Days since statistics were last updated",
+      labelNames: ["database", "table", "stats_name"],
+    }),
+  },
+  query: `DECLARE @results TABLE (
+    database_name NVARCHAR(128),
+    table_name NVARCHAR(128),
+    stats_name NVARCHAR(128),
+    days_old INT
+);
+
+DECLARE @db_name NVARCHAR(128);
+DECLARE @sql NVARCHAR(MAX);
+
+DECLARE db_cursor CURSOR FOR
+SELECT name FROM sys.databases WHERE database_id > 4 AND state = 0;
+
+OPEN db_cursor;
+FETCH NEXT FROM db_cursor INTO @db_name;
+
+WHILE @@FETCH_STATUS = 0
+BEGIN
+    BEGIN TRY
+        SET @sql = N'USE [' + @db_name + N'];
+        INSERT INTO @results
+        SELECT TOP 50
+            DB_NAME() AS database_name,
+            OBJECT_NAME(s.object_id) AS table_name,
+            s.name AS stats_name,
+            DATEDIFF(DAY, sp.last_updated, GETDATE()) AS days_old
+        FROM sys.stats s
+        CROSS APPLY sys.dm_db_stats_properties(s.object_id, s.stats_id) sp
+        WHERE DATEDIFF(DAY, sp.last_updated, GETDATE()) > 7
+        ORDER BY days_old DESC';
+
+        EXEC sp_executesql @sql;
+    END TRY
+    BEGIN CATCH
+        -- Skip databases with errors
+    END CATCH
+
+    FETCH NEXT FROM db_cursor INTO @db_name;
+END
+
+CLOSE db_cursor;
+DEALLOCATE db_cursor;
+
+SELECT * FROM @results;`,
+  collect: (rows, metrics) => {
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      const database = row[0].value;
+      const table = row[1].value;
+      const stats_name = row[2].value;
+      const days_old = row[3].value;
+
+      metricsLog("Fetched statistics age", "db", database, "table", table, "stats", stats_name, "days", days_old);
+      metrics.mssql_statistics_days_old.set({ database, table, stats_name }, days_old);
+    }
+  },
+};
+
 const entries = {
   mssql_up,
   mssql_product_version,
@@ -1076,6 +1495,15 @@ const entries = {
   mssql_transaction_log_stats,
   mssql_security_stats,
   mssql_cpu_scheduler_stats,
+  mssql_database_size_growth,
+  mssql_top_queries,
+  mssql_missing_indexes,
+  mssql_index_fragmentation,
+  mssql_long_running_sessions,
+  mssql_disk_latency,
+  mssql_buffer_cache_hit_ratio,
+  mssql_blocking_details,
+  mssql_statistics_age,
 };
 
 module.exports = {
