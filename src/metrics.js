@@ -995,7 +995,7 @@ const mssql_security_stats = {
   metrics: {
     mssql_failed_login_count: new client.Gauge({
       name: "mssql_failed_login_count",
-      help: "Number of failed login attempts in the error log (last 24 hours approximation based on recent log entries)",
+      help: "Number of failed login attempts in the error log (last 5 minutes)",
     }),
   },
   query: `CREATE TABLE #ErrorLog (
@@ -1016,7 +1016,7 @@ END CATCH;
 
 SELECT COUNT(*) AS failed_login_count
 FROM #ErrorLog
-WHERE LogDate >= DATEADD(HOUR, -24, GETDATE());`,
+WHERE LogDate >= DATEADD(MINUTE, -5, GETDATE());`,
   collect: (rows, metrics) => {
     const failed_count = rows.length > 0 ? rows[0][0].value : 0;
     metricsLog("Fetched failed login count", failed_count);
