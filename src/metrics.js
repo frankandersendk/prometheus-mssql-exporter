@@ -392,8 +392,13 @@ const mssql_sql_agent_jobs = {
   metrics: {
     mssql_sql_agent_job_status: new client.Gauge({
       name: "mssql_sql_agent_job_status",
-      help: "SQL Agent job last run status (0=Failed, 1=Succeeded, 2=Retry, 3=Canceled, 4=In Progress)",
-      labelNames: ["job_name", "job_id", "enabled"],
+      help: "SQL Agent job last run status (-1=Never Run, 0=Failed, 1=Succeeded, 2=Retry, 3=Canceled, 4=In Progress)",
+      labelNames: ["job_name", "job_id"],
+    }),
+    mssql_sql_agent_job_enabled: new client.Gauge({
+      name: "mssql_sql_agent_job_enabled",
+      help: "SQL Agent job enabled status (0=Disabled, 1=Enabled)",
+      labelNames: ["job_name", "job_id"],
     }),
     mssql_sql_agent_job_last_run_seconds: new client.Gauge({
       name: "mssql_sql_agent_job_last_run_seconds",
@@ -462,7 +467,7 @@ LEFT JOIN (
       const row = rows[i];
       const job_name = row[0].value;
       const job_id = row[1].value;
-      const enabled = row[2].value ? "1" : "0";
+      const enabled = row[2].value ? 1 : 0;
       const last_run_status = row[3].value;
       const last_run_seconds = row[4].value;
       const next_run_seconds = row[5].value;
@@ -472,7 +477,8 @@ LEFT JOIN (
 
       // Always set all metrics, even for jobs that have never run (status=-1, seconds=0)
       // This ensures they appear in Grafana tables
-      metrics.mssql_sql_agent_job_status.set({ job_name, job_id, enabled }, last_run_status);
+      metrics.mssql_sql_agent_job_status.set({ job_name, job_id }, last_run_status);
+      metrics.mssql_sql_agent_job_enabled.set({ job_name, job_id }, enabled);
       metrics.mssql_sql_agent_job_last_run_seconds.set({ job_name, job_id }, last_run_seconds);
       metrics.mssql_sql_agent_job_next_run_seconds.set({ job_name, job_id }, next_run_seconds);
       metrics.mssql_sql_agent_job_last_duration_seconds.set({ job_name, job_id }, last_duration_seconds);

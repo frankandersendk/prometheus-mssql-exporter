@@ -709,6 +709,42 @@
                 }
               }
             ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Last Run"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeFromNow"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Next Run"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeAsIso"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Duration"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              }
+            ]
           }
         ]
       },
@@ -744,22 +780,28 @@
           "refId": "A"
         },
         {
-          "expr": "(mssql_sql_agent_job_last_run_seconds{instance=~\"$instance\"} or mssql_sql_agent_job_status{instance=~\"$instance\"} * 0) * 1000",
+          "expr": "mssql_sql_agent_job_enabled{instance=~\"$instance\"} or mssql_sql_agent_job_status{instance=~\"$instance\"} * 0",
           "format": "table",
           "instant": true,
           "refId": "B"
         },
         {
-          "expr": "(mssql_sql_agent_job_next_run_seconds{instance=~\"$instance\"} or mssql_sql_agent_job_status{instance=~\"$instance\"} * 0) * 1000",
+          "expr": "(mssql_sql_agent_job_last_run_seconds{instance=~\"$instance\"} or mssql_sql_agent_job_status{instance=~\"$instance\"} * 0) * 1000",
           "format": "table",
           "instant": true,
           "refId": "C"
         },
         {
-          "expr": "mssql_sql_agent_job_last_duration_seconds{instance=~\"$instance\"} or mssql_sql_agent_job_status{instance=~\"$instance\"} * 0",
+          "expr": "(mssql_sql_agent_job_next_run_seconds{instance=~\"$instance\"} or mssql_sql_agent_job_status{instance=~\"$instance\"} * 0) * 1000",
           "format": "table",
           "instant": true,
           "refId": "D"
+        },
+        {
+          "expr": "mssql_sql_agent_job_last_duration_seconds{instance=~\"$instance\"} or mssql_sql_agent_job_status{instance=~\"$instance\"} * 0",
+          "format": "table",
+          "instant": true,
+          "refId": "E"
         }
       ],
       "title": "SQL Agent Jobs Status",
@@ -783,10 +825,10 @@
             "indexByName": {},
             "renameByName": {
               "Value #A": "Status",
-              "Value #B": "Last Run",
-              "Value #C": "Next Run",
-              "Value #D": "Duration",
-              "enabled": "Enabled",
+              "Value #B": "Enabled",
+              "Value #C": "Last Run",
+              "Value #D": "Next Run",
+              "Value #E": "Duration",
               "job_name": "Job Name"
             }
           }

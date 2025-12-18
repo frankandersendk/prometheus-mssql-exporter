@@ -52,7 +52,8 @@ Prometheus exporter for Microsoft SQL Server (MSSQL). Exposes the following metr
 - mssql_available_page_file_kb Available page file in KB
 
 ## SQL Agent Job Metrics
-- mssql_sql_agent_job_status{job_name,job_id,enabled} SQL Agent job last run status (0=Failed, 1=Succeeded, 2=Retry, 3=Canceled, 4=In Progress)
+- mssql_sql_agent_job_status{job_name,job_id} SQL Agent job last run status (-1=Never Run, 0=Failed, 1=Succeeded, 2=Retry, 3=Canceled, 4=In Progress)
+- mssql_sql_agent_job_enabled{job_name,job_id} SQL Agent job enabled status (0=Disabled, 1=Enabled)
 - mssql_sql_agent_job_last_run_seconds{job_name,job_id} SQL Agent job last run time in seconds since epoch
 - mssql_sql_agent_job_next_run_seconds{job_name,job_id} SQL Agent job next scheduled run time in seconds since epoch
 - mssql_sql_agent_job_last_duration_seconds{job_name,job_id} SQL Agent job last run duration in seconds
