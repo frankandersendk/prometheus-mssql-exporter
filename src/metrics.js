@@ -910,16 +910,17 @@ const mssql_transaction_log_stats = {
     }),
   },
   query: `SELECT
-    d.name AS database_name,
-    ls.used_log_space_in_bytes / 1024.0 / 1024.0 AS log_space_used_mb,
-    mf.size * 8 / 1024.0 AS log_space_total_mb,
-    (CAST(ls.used_log_space_in_bytes AS FLOAT) / NULLIF(CAST(mf.size AS FLOAT) * 8 * 1024, 0)) * 100 AS log_space_used_percent,
+    DB_NAME(ls.database_id) AS database_name,
+    CAST(ls.used_log_space_in_bytes / 1024.0 / 1024.0 AS DECIMAL(18,2)) AS log_space_used_mb,
+    CAST(mf.size * 8.0 / 1024.0 AS DECIMAL(18,2)) AS log_space_total_mb,
+    CAST((ls.used_log_space_in_bytes * 100.0) / NULLIF(CAST(mf.size AS BIGINT) * 8 * 1024, 0) AS DECIMAL(5,2)) AS log_space_used_percent,
     d.log_reuse_wait,
-    (SELECT COUNT(*) FROM sys.dm_db_log_info(d.database_id)) AS vlf_count
-FROM sys.databases d
-INNER JOIN sys.dm_db_log_space_usage ls ON d.database_id = ls.database_id
-INNER JOIN sys.master_files mf ON d.database_id = mf.database_id AND mf.type = 1
-WHERE d.database_id > 4`,
+    (SELECT COUNT(*) FROM sys.dm_db_log_info(ls.database_id)) AS vlf_count
+FROM sys.dm_db_log_space_usage ls
+INNER JOIN sys.databases d ON ls.database_id = d.database_id
+INNER JOIN sys.master_files mf ON ls.database_id = mf.database_id AND mf.type = 1
+WHERE ls.database_id > 4
+  AND d.state = 0`,
   collect: (rows, metrics) => {
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];

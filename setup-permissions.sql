@@ -56,13 +56,86 @@ GO
 -- ============================================================================
 -- Required for TempDB metrics
 
-USE tempdb;
+-- ============================================================================
+-- DATABASE PERMISSIONS
+-- ============================================================================
+-- Required for transaction log statistics and TempDB metrics
+-- We create users in each database and grant VIEW DATABASE STATE
+
+USE master;
 GO
 
--- Grant access to tempdb system views
-GRANT VIEW DATABASE STATE TO [monitoring];
+-- Create a stored procedure to grant permissions automatically
+-- This procedure will be called by a trigger when SQL Server starts
+IF OBJECT_ID('dbo.sp_grant_monitoring_permissions', 'P') IS NOT NULL
+    DROP PROCEDURE dbo.sp_grant_monitoring_permissions;
+GO
 
-PRINT 'TempDB database permissions granted successfully';
+CREATE PROCEDURE dbo.sp_grant_monitoring_permissions
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    DECLARE @dbname NVARCHAR(128);
+    DECLARE @sql NVARCHAR(MAX);
+
+    DECLARE db_cursor CURSOR FOR
+    SELECT name FROM sys.databases
+    WHERE state = 0  -- Only ONLINE databases
+      AND HAS_DBACCESS(name) = 1; -- Only databases we can access
+
+    OPEN db_cursor;
+    FETCH NEXT FROM db_cursor INTO @dbname;
+
+    WHILE @@FETCH_STATUS = 0
+    BEGIN
+        BEGIN TRY
+            -- Create user in database if it doesn't exist
+            SET @sql = N'USE [' + @dbname + N'];
+                IF NOT EXISTS (SELECT 1 FROM sys.database_principals WHERE name = ''monitoring'')
+                BEGIN
+                    CREATE USER [monitoring] FOR LOGIN [monitoring];
+                END;
+                GRANT VIEW DATABASE STATE TO [monitoring];';
+            EXEC sp_executesql @sql;
+            PRINT 'Granted permissions on database: ' + @dbname;
+        END TRY
+        BEGIN CATCH
+            PRINT 'WARNING: Could not grant permissions on database: ' + @dbname + ' - ' + ERROR_MESSAGE();
+        END CATCH
+
+        FETCH NEXT FROM db_cursor INTO @dbname;
+    END
+
+    CLOSE db_cursor;
+    DEALLOCATE db_cursor;
+END;
+GO
+
+-- Execute the procedure to grant initial permissions
+EXEC dbo.sp_grant_monitoring_permissions;
+GO
+
+-- Create a trigger to automatically grant permissions on SQL Server startup
+-- This ensures tempdb gets the permissions after every restart
+IF EXISTS (SELECT 1 FROM sys.server_triggers WHERE name = 'trg_grant_monitoring_permissions_on_startup')
+    DROP TRIGGER trg_grant_monitoring_permissions_on_startup ON ALL SERVER;
+GO
+
+CREATE TRIGGER trg_grant_monitoring_permissions_on_startup
+ON ALL SERVER
+FOR LOGON
+AS
+BEGIN
+    -- Only execute once per restart by checking if tempdb user exists
+    IF NOT EXISTS (SELECT 1 FROM tempdb.sys.database_principals WHERE name = 'monitoring')
+    BEGIN
+        EXEC master.dbo.sp_grant_monitoring_permissions;
+    END
+END;
+GO
+
+PRINT 'Database permissions and startup trigger created successfully';
 GO
 
 -- ============================================================================
@@ -73,9 +146,10 @@ GO
 USE master;
 GO
 
+-- Verify server-level permissions
 SELECT
     'PERMISSION VERIFICATION' AS check_type,
-    USER_NAME() AS current_user,
+    SYSTEM_USER AS current_login,
     HAS_PERMS_BY_NAME(NULL, NULL, 'VIEW SERVER STATE') AS has_view_server_state,
     HAS_PERMS_BY_NAME(NULL, NULL, 'VIEW ANY DEFINITION') AS has_view_any_definition,
     HAS_PERMS_BY_NAME('msdb.dbo.sysjobs', 'OBJECT', 'SELECT') AS has_sysjobs_access,
@@ -83,6 +157,11 @@ SELECT
     HAS_PERMS_BY_NAME('msdb.dbo.sysjobschedules', 'OBJECT', 'SELECT') AS has_sysjobschedules_access,
     HAS_PERMS_BY_NAME('msdb.dbo.sysschedules', 'OBJECT', 'SELECT') AS has_sysschedules_access,
     HAS_PERMS_BY_NAME('msdb.dbo.backupset', 'OBJECT', 'SELECT') AS has_backupset_access;
+
+-- Verify database-level permissions
+PRINT '';
+PRINT 'Checking VIEW DATABASE STATE permissions on all databases:';
+EXEC dbo.sp_grant_monitoring_permissions;
 
 PRINT '';
 PRINT '============================================================================';
