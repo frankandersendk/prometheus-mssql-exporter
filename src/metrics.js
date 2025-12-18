@@ -998,9 +998,24 @@ const mssql_security_stats = {
       help: "Number of failed login attempts in the error log (last 24 hours approximation based on recent log entries)",
     }),
   },
-  query: `SELECT COUNT(*) AS failed_login_count
-FROM sys.dm_exec_sessions
-WHERE is_user_process = 1 AND status = 'failed'`,
+  query: `DECLARE @failed_logins TABLE (
+    LogDate DATETIME,
+    ProcessInfo NVARCHAR(100),
+    LogText NVARCHAR(4000)
+);
+
+BEGIN TRY
+    INSERT INTO @failed_logins
+    EXEC xp_readerrorlog 0, 1, N'Login failed';
+
+    SELECT COUNT(*) AS failed_login_count
+    FROM @failed_logins
+    WHERE LogDate >= DATEADD(HOUR, -24, GETDATE());
+END TRY
+BEGIN CATCH
+    -- If xp_readerrorlog fails (permissions issue), return 0
+    SELECT 0 AS failed_login_count;
+END CATCH`,
   collect: (rows, metrics) => {
     const failed_count = rows.length > 0 ? rows[0][0].value : 0;
     metricsLog("Fetched failed login count", failed_count);
