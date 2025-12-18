@@ -109,14 +109,12 @@ async function measure(connection, collector, name) {
           try {
             collector.collect(rows, collector.metrics);
           } catch (error) {
-            console.error(`Error processing metric ${name} data`, collector.query, JSON.stringify(rows), error);
+            console.error(`Error processing metric ${name}:`, error.message || error);
           }
-        } else {
-          console.error(`Query for metric ${name} returned 0 rows to process`, collector.query);
         }
         resolve();
       } else {
-        console.error(`Error executing metric ${name} SQL query`, collector.query, error);
+        console.error(`Error executing query for metric ${name}:`, error.message || error);
         resolve();
       }
     });
