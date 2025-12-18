@@ -1072,16 +1072,47 @@ const mssql_database_size_growth = {
       labelNames: ["database"],
     }),
   },
-  query: `SELECT
-    d.name AS database_name,
-    CAST(SUM(CASE WHEN mf.type = 0 THEN mf.size * 8 / 1024.0 ELSE 0 END) AS DECIMAL(18,2)) AS data_size_mb,
-    CAST(SUM(CASE WHEN mf.type = 1 THEN mf.size * 8 / 1024.0 ELSE 0 END) AS DECIMAL(18,2)) AS log_size_mb,
-    CAST(SUM(CASE WHEN mf.type = 0 THEN CAST(FILEPROPERTY(mf.name, 'SpaceUsed') AS BIGINT) * 8 / 1024.0 ELSE 0 END) AS DECIMAL(18,2)) AS data_used_mb,
-    CAST(SUM(CASE WHEN mf.type = 0 THEN (mf.size - CAST(FILEPROPERTY(mf.name, 'SpaceUsed') AS BIGINT)) * 8 / 1024.0 ELSE 0 END) AS DECIMAL(18,2)) AS data_free_mb
-FROM sys.databases d
-INNER JOIN sys.master_files mf ON d.database_id = mf.database_id
-WHERE d.database_id > 4 AND d.state = 0
-GROUP BY d.database_id, d.name`,
+  query: `IF OBJECT_ID('tempdb..#Results') IS NOT NULL DROP TABLE #Results;
+
+CREATE TABLE #Results (
+    database_name NVARCHAR(128),
+    data_size_mb DECIMAL(18,2),
+    log_size_mb DECIMAL(18,2),
+    data_used_mb DECIMAL(18,2),
+    data_free_mb DECIMAL(18,2)
+);
+
+DECLARE @dbname NVARCHAR(128);
+DECLARE @sql NVARCHAR(MAX);
+
+DECLARE db_cursor CURSOR FOR
+SELECT name FROM sys.databases WHERE database_id > 4 AND state = 0;
+
+OPEN db_cursor;
+FETCH NEXT FROM db_cursor INTO @dbname;
+
+WHILE @@FETCH_STATUS = 0
+BEGIN
+    SET @sql = N'USE [' + @dbname + N'];
+    INSERT INTO #Results
+    SELECT
+        ''' + @dbname + N''' AS database_name,
+        CAST(SUM(CASE WHEN type = 0 THEN size * 8 / 1024.0 ELSE 0 END) AS DECIMAL(18,2)) AS data_size_mb,
+        CAST(SUM(CASE WHEN type = 1 THEN size * 8 / 1024.0 ELSE 0 END) AS DECIMAL(18,2)) AS log_size_mb,
+        CAST(SUM(CASE WHEN type = 0 THEN CAST(FILEPROPERTY(name, ''SpaceUsed'') AS BIGINT) * 8 / 1024.0 ELSE 0 END) AS DECIMAL(18,2)) AS data_used_mb,
+        CAST(SUM(CASE WHEN type = 0 THEN (size - CAST(FILEPROPERTY(name, ''SpaceUsed'') AS BIGINT)) * 8 / 1024.0 ELSE 0 END) AS DECIMAL(18,2)) AS data_free_mb
+    FROM sys.database_files;';
+
+    EXEC sp_executesql @sql;
+    FETCH NEXT FROM db_cursor INTO @dbname;
+END;
+
+CLOSE db_cursor;
+DEALLOCATE db_cursor;
+
+SELECT * FROM #Results;
+
+DROP TABLE #Results;`,
   collect: (rows, metrics) => {
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
