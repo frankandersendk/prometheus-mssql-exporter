@@ -1072,50 +1072,25 @@ const mssql_database_size_growth = {
       labelNames: ["database"],
     }),
   },
-  query: `DECLARE @results TABLE (
-    database_name NVARCHAR(128),
-    data_size_mb DECIMAL(18,2),
-    log_size_mb DECIMAL(18,2),
-    data_used_mb DECIMAL(18,2),
-    data_free_mb DECIMAL(18,2)
-);
-
-DECLARE @db_id INT;
-DECLARE @db_name NVARCHAR(128);
-DECLARE @sql NVARCHAR(MAX);
-
-DECLARE db_cursor CURSOR FOR
-SELECT database_id, name FROM sys.databases WHERE database_id > 4 AND state = 0;
-
-OPEN db_cursor;
-FETCH NEXT FROM db_cursor INTO @db_id, @db_name;
-
-WHILE @@FETCH_STATUS = 0
-BEGIN
-    BEGIN TRY
-        SET @sql = N'
-        SELECT
-            @dbname AS database_name,
-            CAST(SUM(CASE WHEN type = 0 THEN size * 8 / 1024.0 ELSE 0 END) AS DECIMAL(18,2)) AS data_size_mb,
-            CAST(SUM(CASE WHEN type = 1 THEN size * 8 / 1024.0 ELSE 0 END) AS DECIMAL(18,2)) AS log_size_mb,
-            CAST(SUM(CASE WHEN type = 0 THEN FILEPROPERTY(name, ''SpaceUsed'') * 8 / 1024.0 ELSE 0 END) AS DECIMAL(18,2)) AS data_used_mb,
-            CAST(SUM(CASE WHEN type = 0 THEN (size - FILEPROPERTY(name, ''SpaceUsed'')) * 8 / 1024.0 ELSE 0 END) AS DECIMAL(18,2)) AS data_free_mb
-        FROM [' + @db_name + N'].sys.database_files';
-
-        INSERT INTO @results
-        EXEC sp_executesql @sql, N'@dbname NVARCHAR(128)', @dbname = @db_name;
-    END TRY
-    BEGIN CATCH
-        -- Skip databases with errors
-    END CATCH
-
-    FETCH NEXT FROM db_cursor INTO @db_id, @db_name;
-END
-
-CLOSE db_cursor;
-DEALLOCATE db_cursor;
-
-SELECT * FROM @results;`,
+  query: `SELECT
+    d.name AS database_name,
+    CAST(SUM(CASE WHEN mf.type = 0 THEN mf.size * 8 / 1024.0 ELSE 0 END) AS DECIMAL(18,2)) AS data_size_mb,
+    CAST(SUM(CASE WHEN mf.type = 1 THEN mf.size * 8 / 1024.0 ELSE 0 END) AS DECIMAL(18,2)) AS log_size_mb,
+    CAST(SUM(CASE WHEN mf.type = 0 THEN
+        (SELECT SUM(CAST(FILEPROPERTY(df.name, 'SpaceUsed') AS BIGINT)) * 8 / 1024.0
+         FROM sys.master_files df
+         WHERE df.database_id = mf.database_id AND df.type = 0 AND df.file_id = mf.file_id)
+    ELSE 0 END) AS DECIMAL(18,2)) AS data_used_mb,
+    CAST(SUM(CASE WHEN mf.type = 0 THEN
+        mf.size * 8 / 1024.0 -
+        (SELECT SUM(CAST(FILEPROPERTY(df.name, 'SpaceUsed') AS BIGINT)) * 8 / 1024.0
+         FROM sys.master_files df
+         WHERE df.database_id = mf.database_id AND df.type = 0 AND df.file_id = mf.file_id)
+    ELSE 0 END) AS DECIMAL(18,2)) AS data_free_mb
+FROM sys.databases d
+INNER JOIN sys.master_files mf ON d.database_id = mf.database_id
+WHERE d.database_id > 4 AND d.state = 0
+GROUP BY d.database_id, d.name`,
   collect: (rows, metrics) => {
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
