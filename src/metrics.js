@@ -1009,17 +1009,16 @@ CREATE TABLE #ErrorLog (
 BEGIN TRY
     INSERT INTO #ErrorLog
     EXEC xp_readerrorlog 0, 1, N'Login failed';
-
-    SELECT COUNT(*) AS failed_login_count
-    FROM #ErrorLog
-    WHERE LogDate >= DATEADD(HOUR, -24, GETDATE());
-
-    DROP TABLE #ErrorLog;
 END TRY
 BEGIN CATCH
-    IF OBJECT_ID('tempdb..#ErrorLog') IS NOT NULL DROP TABLE #ErrorLog;
-    SELECT 0 AS failed_login_count;
-END CATCH`,
+    -- If xp_readerrorlog fails, just continue with empty table
+END CATCH
+
+SELECT COUNT(*) AS failed_login_count
+FROM #ErrorLog
+WHERE LogDate >= DATEADD(HOUR, -24, GETDATE());
+
+DROP TABLE #ErrorLog;`,
   collect: (rows, metrics) => {
     const failed_count = rows.length > 0 ? rows[0][0].value : 0;
     metricsLog("Fetched failed login count", failed_count);
