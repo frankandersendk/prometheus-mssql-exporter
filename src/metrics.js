@@ -1072,15 +1072,50 @@ const mssql_database_size_growth = {
       labelNames: ["database"],
     }),
   },
-  query: `SELECT
-    DB_NAME(database_id) AS database_name,
-    SUM(CASE WHEN type = 0 THEN size * 8 / 1024.0 ELSE 0 END) AS data_size_mb,
-    SUM(CASE WHEN type = 1 THEN size * 8 / 1024.0 ELSE 0 END) AS log_size_mb,
-    SUM(CASE WHEN type = 0 THEN FILEPROPERTY(name, 'SpaceUsed') * 8 / 1024.0 ELSE 0 END) AS data_used_mb,
-    SUM(CASE WHEN type = 0 THEN (size - FILEPROPERTY(name, 'SpaceUsed')) * 8 / 1024.0 ELSE 0 END) AS data_free_mb
-FROM sys.master_files
-WHERE database_id > 4
-GROUP BY database_id`,
+  query: `DECLARE @results TABLE (
+    database_name NVARCHAR(128),
+    data_size_mb DECIMAL(18,2),
+    log_size_mb DECIMAL(18,2),
+    data_used_mb DECIMAL(18,2),
+    data_free_mb DECIMAL(18,2)
+);
+
+DECLARE @db_id INT;
+DECLARE @db_name NVARCHAR(128);
+DECLARE @sql NVARCHAR(MAX);
+
+DECLARE db_cursor CURSOR FOR
+SELECT database_id, name FROM sys.databases WHERE database_id > 4 AND state = 0;
+
+OPEN db_cursor;
+FETCH NEXT FROM db_cursor INTO @db_id, @db_name;
+
+WHILE @@FETCH_STATUS = 0
+BEGIN
+    BEGIN TRY
+        SET @sql = N'
+        SELECT
+            @dbname AS database_name,
+            CAST(SUM(CASE WHEN type = 0 THEN size * 8 / 1024.0 ELSE 0 END) AS DECIMAL(18,2)) AS data_size_mb,
+            CAST(SUM(CASE WHEN type = 1 THEN size * 8 / 1024.0 ELSE 0 END) AS DECIMAL(18,2)) AS log_size_mb,
+            CAST(SUM(CASE WHEN type = 0 THEN FILEPROPERTY(name, ''SpaceUsed'') * 8 / 1024.0 ELSE 0 END) AS DECIMAL(18,2)) AS data_used_mb,
+            CAST(SUM(CASE WHEN type = 0 THEN (size - FILEPROPERTY(name, ''SpaceUsed'')) * 8 / 1024.0 ELSE 0 END) AS DECIMAL(18,2)) AS data_free_mb
+        FROM [' + @db_name + N'].sys.database_files';
+
+        INSERT INTO @results
+        EXEC sp_executesql @sql, N'@dbname NVARCHAR(128)', @dbname = @db_name;
+    END TRY
+    BEGIN CATCH
+        -- Skip databases with errors
+    END CATCH
+
+    FETCH NEXT FROM db_cursor INTO @db_id, @db_name;
+END
+
+CLOSE db_cursor;
+DEALLOCATE db_cursor;
+
+SELECT * FROM @results;`,
   collect: (rows, metrics) => {
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
