@@ -3185,7 +3185,9 @@
               "Time": true,
               "__name__": true,
               "instance": true,
-              "job": true
+              "job": true,
+              "database 1": true,
+              "database 2": true
             },
             "indexByName": {},
             "renameByName": {
@@ -3643,16 +3645,16 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "red",
                 "value": null
               },
               {
                 "color": "yellow",
-                "value": 95
+                "value": 90
               },
               {
-                "color": "red",
-                "value": 90
+                "color": "green",
+                "value": 95
               }
             ]
           },

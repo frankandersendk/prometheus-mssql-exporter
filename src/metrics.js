@@ -1124,7 +1124,7 @@ const mssql_top_queries = {
     }),
   },
   query: `SELECT TOP 20
-    CONVERT(VARCHAR(50), qs.query_hash) AS query_hash,
+    CONVERT(VARCHAR(50), qs.query_hash, 1) AS query_hash,
     ISNULL(DB_NAME(qt.dbid), 'N/A') AS database_name,
     qs.execution_count,
     qs.total_worker_time / 1000 AS total_cpu_ms,
