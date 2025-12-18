@@ -718,7 +718,11 @@
             "properties": [
               {
                 "id": "unit",
-                "value": "dateTimeFromNow"
+                "value": "dateTimeAsIso"
+              },
+              {
+                "id": "custom.filterable",
+                "value": true
               }
             ]
           },
@@ -731,6 +735,24 @@
               {
                 "id": "unit",
                 "value": "dateTimeAsIso"
+              },
+              {
+                "id": "custom.filterable",
+                "value": true
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "0": {
+                        "index": 0,
+                        "text": "Not scheduled"
+                      }
+                    },
+                    "type": "value"
+                  }
+                ]
               }
             ]
           },
@@ -742,7 +764,21 @@
             "properties": [
               {
                 "id": "unit",
-                "value": "s"
+                "value": "dtdurations"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "mappings",
+                "value": []
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "auto"
+                }
               }
             ]
           }
@@ -992,8 +1028,10 @@
       "title": "Database Backup Status",
       "transformations": [
         {
-          "id": "merge",
-          "options": {}
+          "id": "seriesToColumns",
+          "options": {
+            "byField": "database"
+          }
         },
         {
           "id": "organize",
@@ -1472,25 +1510,7 @@
             },
             "inspect": false
           },
-          "mappings": [
-            {
-              "options": {
-                "1": {
-                  "index": 0,
-                  "text": "FULL"
-                },
-                "2": {
-                  "index": 1,
-                  "text": "BULK_LOGGED"
-                },
-                "3": {
-                  "index": 2,
-                  "text": "SIMPLE"
-                }
-              },
-              "type": "value"
-            }
-          ],
+          "mappings": [],
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -1538,6 +1558,18 @@
                   "mode": "gradient",
                   "type": "color-background"
                 }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Log Used MB"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "decmbytes"
               }
             ]
           },
@@ -1622,19 +1654,19 @@
           "refId": "A"
         },
         {
-          "expr": "mssql_log_space_total_mb{instance=~\"$instance\"}",
+          "expr": "mssql_log_space_used_mb{instance=~\"$instance\"}",
           "format": "table",
           "instant": true,
           "refId": "B"
         },
         {
-          "expr": "mssql_log_vlf_count{instance=~\"$instance\"}",
+          "expr": "mssql_log_space_total_mb{instance=~\"$instance\"}",
           "format": "table",
           "instant": true,
           "refId": "C"
         },
         {
-          "expr": "mssql_database_recovery_model{instance=~\"$instance\"}",
+          "expr": "mssql_log_vlf_count{instance=~\"$instance\"}",
           "format": "table",
           "instant": true,
           "refId": "D"
@@ -1643,8 +1675,10 @@
       "title": "Transaction Log Status",
       "transformations": [
         {
-          "id": "merge",
-          "options": {}
+          "id": "seriesToColumns",
+          "options": {
+            "byField": "database"
+          }
         },
         {
           "id": "organize",
@@ -1658,9 +1692,9 @@
             "indexByName": {},
             "renameByName": {
               "Value #A": "Log Used %",
-              "Value #B": "Log Total MB",
-              "Value #C": "VLF Count",
-              "Value #D": "Recovery Model",
+              "Value #B": "Log Used MB",
+              "Value #C": "Log Total MB",
+              "Value #D": "VLF Count",
               "database": "Database"
             }
           }
@@ -1729,27 +1763,28 @@
       },
       "id": 51,
       "options": {
-        "legend": {
-          "calcs": ["mean", "max"],
-          "displayMode": "table",
-          "placement": "right",
-          "showLegend": true
+        "displayMode": "gradient",
+        "minVizWidth": 0,
+        "minVizHeight": 10,
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
         },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "none"
-        }
+        "showUnfilled": true,
+        "text": {}
       },
       "pluginVersion": "10.0.0",
       "targets": [
         {
-          "expr": "mssql_log_space_used_mb{instance=~\"$instance\"}",
+          "expr": "topk(10, mssql_io_stall_total{instance=~\"$instance\"})",
           "legendFormat": "{{database}}",
           "refId": "A"
         }
       ],
-      "title": "Transaction Log Space Used (MB)",
-      "type": "timeseries"
+      "title": "Top 10 Database I/O Stall Time (ms)",
+      "type": "bargauge"
     },
     {
       "collapsed": false,

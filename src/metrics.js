@@ -911,9 +911,9 @@ const mssql_transaction_log_stats = {
   },
   query: `SELECT
     d.name AS database_name,
-    ls.log_space_in_bytes_since_last_backup / 1024.0 / 1024.0 AS log_space_used_mb,
+    ls.used_log_space_in_bytes / 1024.0 / 1024.0 AS log_space_used_mb,
     mf.size * 8 / 1024.0 AS log_space_total_mb,
-    (CAST(ls.log_space_in_bytes_since_last_backup AS FLOAT) / NULLIF(CAST(mf.size AS FLOAT) * 8 * 1024, 0)) * 100 AS log_space_used_percent,
+    (CAST(ls.used_log_space_in_bytes AS FLOAT) / NULLIF(CAST(mf.size AS FLOAT) * 8 * 1024, 0)) * 100 AS log_space_used_percent,
     d.log_reuse_wait,
     (SELECT COUNT(*) FROM sys.dm_db_log_info(d.database_id)) AS vlf_count
 FROM sys.databases d
