@@ -1012,13 +1012,11 @@ BEGIN TRY
 END TRY
 BEGIN CATCH
     -- If xp_readerrorlog fails, just continue with empty table
-END CATCH
+END CATCH;
 
 SELECT COUNT(*) AS failed_login_count
 FROM #ErrorLog
-WHERE LogDate >= DATEADD(HOUR, -24, GETDATE());
-
-DROP TABLE #ErrorLog;`,
+WHERE LogDate >= DATEADD(HOUR, -24, GETDATE());`,
   collect: (rows, metrics) => {
     const failed_count = rows.length > 0 ? rows[0][0].value : 0;
     metricsLog("Fetched failed login count", failed_count);
