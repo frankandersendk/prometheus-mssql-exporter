@@ -28,6 +28,9 @@ GRANT VIEW SERVER STATE TO [monitoring];
 -- VIEW ANY DEFINITION: Required to query system metadata (sys.*)
 GRANT VIEW ANY DEFINITION TO [monitoring];
 
+-- EXECUTE ON xp_readerrorlog: Required to read SQL Server error log for failed login attempts
+GRANT EXECUTE ON xp_readerrorlog TO [monitoring];
+
 PRINT 'Master database permissions granted successfully';
 GO
 
@@ -176,7 +179,7 @@ PRINT '  - Blocking & Wait Statistics';
 PRINT '  - Database Properties (recovery model, compatibility, etc.)';
 PRINT '  - TempDB Statistics';
 PRINT '  - Transaction Log Statistics';
-PRINT '  - Security Statistics';
+PRINT '  - Security Statistics (failed login attempts from error log)';
 PRINT '  - CPU & Scheduler Statistics';
 PRINT '  - Memory & I/O Statistics';
 PRINT '============================================================================';
