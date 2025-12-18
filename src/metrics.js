@@ -1076,17 +1076,8 @@ const mssql_database_size_growth = {
     d.name AS database_name,
     CAST(SUM(CASE WHEN mf.type = 0 THEN mf.size * 8 / 1024.0 ELSE 0 END) AS DECIMAL(18,2)) AS data_size_mb,
     CAST(SUM(CASE WHEN mf.type = 1 THEN mf.size * 8 / 1024.0 ELSE 0 END) AS DECIMAL(18,2)) AS log_size_mb,
-    CAST(SUM(CASE WHEN mf.type = 0 THEN
-        (SELECT SUM(CAST(FILEPROPERTY(df.name, 'SpaceUsed') AS BIGINT)) * 8 / 1024.0
-         FROM sys.master_files df
-         WHERE df.database_id = mf.database_id AND df.type = 0 AND df.file_id = mf.file_id)
-    ELSE 0 END) AS DECIMAL(18,2)) AS data_used_mb,
-    CAST(SUM(CASE WHEN mf.type = 0 THEN
-        mf.size * 8 / 1024.0 -
-        (SELECT SUM(CAST(FILEPROPERTY(df.name, 'SpaceUsed') AS BIGINT)) * 8 / 1024.0
-         FROM sys.master_files df
-         WHERE df.database_id = mf.database_id AND df.type = 0 AND df.file_id = mf.file_id)
-    ELSE 0 END) AS DECIMAL(18,2)) AS data_free_mb
+    CAST(SUM(CASE WHEN mf.type = 0 THEN CAST(FILEPROPERTY(mf.name, 'SpaceUsed') AS BIGINT) * 8 / 1024.0 ELSE 0 END) AS DECIMAL(18,2)) AS data_used_mb,
+    CAST(SUM(CASE WHEN mf.type = 0 THEN (mf.size - CAST(FILEPROPERTY(mf.name, 'SpaceUsed') AS BIGINT)) * 8 / 1024.0 ELSE 0 END) AS DECIMAL(18,2)) AS data_free_mb
 FROM sys.databases d
 INNER JOIN sys.master_files mf ON d.database_id = mf.database_id
 WHERE d.database_id > 4 AND d.state = 0
